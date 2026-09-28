@@ -1,0 +1,88 @@
+Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2018.3 (win64) Build 2405991 Thu Dec  6 23:38:27 MST 2018
+| Date         : Sun Sep 20 18:26:20 2026
+| Host         : NIKA running 64-bit major release  (build 9200)
+| Command      : report_control_sets -verbose -file pulser_rtz_control_sets_placed.rpt
+| Design       : pulser_rtz
+| Device       : xc7s25
+---------------------------------------------------------------------------------------
+
+Control Set Information
+
+Table of Contents
+-----------------
+1. Summary
+2. Histogram
+3. Flip-Flop Distribution
+4. Detailed Control Set Information
+
+1. Summary
+----------
+
++----------------------------------------------------------+-------+
+|                          Status                          | Count |
++----------------------------------------------------------+-------+
+| Number of unique control sets                            |    18 |
+| Unused register locations in slices containing registers |    66 |
++----------------------------------------------------------+-------+
+
+
+2. Histogram
+------------
+
++--------+--------------+
+| Fanout | Control Sets |
++--------+--------------+
+|      1 |            4 |
+|      4 |            3 |
+|      5 |            2 |
+|      6 |            2 |
+|      7 |            2 |
+|     10 |            1 |
+|    16+ |            4 |
++--------+--------------+
+
+
+3. Flip-Flop Distribution
+-------------------------
+
++--------------+-----------------------+------------------------+-----------------+--------------+
+| Clock Enable | Synchronous Set/Reset | Asynchronous Set/Reset | Total Registers | Total Slices |
++--------------+-----------------------+------------------------+-----------------+--------------+
+| No           | No                    | No                     |              37 |           10 |
+| No           | No                    | Yes                    |               0 |            0 |
+| No           | Yes                   | No                     |               1 |            1 |
+| Yes          | No                    | No                     |              29 |           10 |
+| Yes          | No                    | Yes                    |               0 |            0 |
+| Yes          | Yes                   | No                     |             115 |           34 |
++--------------+-----------------------+------------------------+-----------------+--------------+
+
+
+4. Detailed Control Set Information
+-----------------------------------
+
++----------------------+-------------------------------------+---------------------------+------------------+----------------+
+|     Clock Signal     |            Enable Signal            |      Set/Reset Signal     | Slice Load Count | Bel Load Count |
++----------------------+-------------------------------------+---------------------------+------------------+----------------+
+|  CLK100MHZ_IBUF_BUFG |                                     | uart_start_reg_n_0        |                1 |              1 |
+|  CLK100MHZ_IBUF_BUFG | cs_r_i_2_n_0                        | cs_r_i_1_n_0              |                1 |              1 |
+|  CLK100MHZ_IBUF_BUFG | sck_r_i_2_n_0                       | sck_r_i_1_n_0             |                1 |              1 |
+|  CLK100MHZ_IBUF_BUFG | sci_r_i_1_n_0                       | cs_r_i_1_n_0              |                1 |              1 |
+|  CLK100MHZ_IBUF_BUFG | bit_idx                             | uart_start_reg_n_0        |                2 |              4 |
+|  CLK100MHZ_IBUF_BUFG | sci_r_i_1_n_0                       |                           |                1 |              4 |
+|  CLK100MHZ_IBUF_BUFG | ram_idx[9]_i_2_n_0                  | ram_idx[9]_i_1_n_0        |                1 |              4 |
+|  CLK100MHZ_IBUF_BUFG | current_state                       |                           |                2 |              5 |
+|  CLK100MHZ_IBUF_BUFG | pulse_counter                       | heartbeat                 |                1 |              5 |
+|  CLK100MHZ_IBUF_BUFG | ram_idx[9]_i_2_n_0                  | ram_idx[7]_i_1_n_0        |                2 |              6 |
+|  CLK100MHZ_IBUF_BUFG | uart_start                          |                           |                3 |              6 |
+|  CLK100MHZ_IBUF_BUFG | uart_shift_reg0_in[0]               |                           |                1 |              7 |
+|  CLK100MHZ_IBUF_BUFG | FSM_onehot_logger_state[6]_i_1_n_0  |                           |                3 |              7 |
+|  CLK100MHZ_IBUF_BUFG | uart_busy_reg_n_0                   | uart_start_reg_n_0        |                3 |             10 |
+|  CLK100MHZ_IBUF_BUFG | cycle_counter[19]_i_2_n_0           | cycle_counter[19]_i_1_n_0 |                5 |             20 |
+|  CLK100MHZ_IBUF_BUFG | FSM_onehot_logger_state_reg_n_0_[0] | main_cnt[31]_i_1_n_0      |                8 |             31 |
+|  CLK100MHZ_IBUF_BUFG | spi_clk_cnt[31]_i_2_n_0             | spi_clk_cnt[31]_i_1_n_0   |                9 |             32 |
+|  CLK100MHZ_IBUF_BUFG |                                     |                           |               10 |             37 |
++----------------------+-------------------------------------+---------------------------+------------------+----------------+
+
+
