@@ -14,3 +14,14 @@ Status\ Report.txt
 
 # Lock files sometimes left behind
 .~lock.*
+
+# Vivado generated files
+*.jou
+*.log
+*.str
+*.zip
+.Xil/
+FPGA.cache/
+FPGA.hw/
+FPGA.runs/
+FPGA.sim/

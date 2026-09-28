@@ -39,37 +39,37 @@ set_property -dict {PACKAGE_PIN E14 IOSTANDARD LVCMOS33} [get_ports {rgb_led[5]}
 #set_property -dict { PACKAGE_PIN H13   IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]; #IO_L20P_T3_A20_15 Sch=btn[3]
 
 
-## PMOD Header JA (DAC / ADC Control Pins)
-set_property -dict { PACKAGE_PIN L17   IOSTANDARD LVCMOS33 } [get_ports { oe }];  # Pmod Pin 1
-set_property -dict { PACKAGE_PIN L18   IOSTANDARD LVCMOS33 } [get_ports { inb }]; # Pmod Pin 2
-set_property -dict { PACKAGE_PIN M14   IOSTANDARD LVCMOS33 } [get_ports { ina }]; # Pmod Pin 3
-set_property -dict { PACKAGE_PIN N14   IOSTANDARD LVCMOS33 } [get_ports { sck }]; # Pmod Pin 4
-set_property -dict { PACKAGE_PIN M16   IOSTANDARD LVCMOS33 } [get_ports { clk }]; # Pmod Pin 7
-set_property -dict { PACKAGE_PIN M17   IOSTANDARD LVCMOS33 } [get_ports { otr }]; # Pmod Pin 8
-set_property -dict { PACKAGE_PIN M18   IOSTANDARD LVCMOS33 } [get_ports { cs }];  # Pmod Pin 9
-set_property -dict { PACKAGE_PIN N18   IOSTANDARD LVCMOS33 } [get_ports { sci }]; # Pmod Pin 10
+## PMOD Header JA (Relay, Stepper, DAC / ADC Clock)
+set_property -dict { PACKAGE_PIN L17   IOSTANDARD LVCMOS33 } [get_ports { relay }];    # JA 1 (Pmod Pin 1)  - Relay
+#set_property -dict { PACKAGE_PIN L18   IOSTANDARD LVCMOS33 } [get_ports { stepper3 }]; # JA 2 (Pmod Pin 2)  - Stepper3
+#set_property -dict { PACKAGE_PIN M14   IOSTANDARD LVCMOS33 } [get_ports { stepper2 }]; # JA 3 (Pmod Pin 3)  - Stepper2
+#set_property -dict { PACKAGE_PIN N14   IOSTANDARD LVCMOS33 } [get_ports { stepper1 }]; # JA 4 (Pmod Pin 4)  - Stepper1
+set_property -dict { PACKAGE_PIN M16   IOSTANDARD LVCMOS33 } [get_ports { cs }];       # JA 5 (Pmod Pin 7)  - DAC_CS
+set_property -dict { PACKAGE_PIN M17   IOSTANDARD LVCMOS33 } [get_ports { sck }];      # JA 6 (Pmod Pin 8)  - DAC_SCK
+set_property -dict { PACKAGE_PIN M18   IOSTANDARD LVCMOS33 } [get_ports { sci }];      # JA 7 (Pmod Pin 9)  - DAC_SDI
+set_property -dict { PACKAGE_PIN N18   IOSTANDARD LVCMOS33 } [get_ports { clk }];      # JA 8 (Pmod Pin 10) - ADC_CLK
 
 
-## PMOD Header JB (Parallel ADC Pins - FLIPPED)
-set_property -dict { PACKAGE_PIN P17   IOSTANDARD LVCMOS33 } [get_ports { adc_data[4] }];  # Pmod Pin 1  (was 9)
-set_property -dict { PACKAGE_PIN P18   IOSTANDARD LVCMOS33 } [get_ports { adc_data[3] }];  # Pmod Pin 2  (was 10)
-set_property -dict { PACKAGE_PIN R18   IOSTANDARD LVCMOS33 } [get_ports { adc_data[2] }];  # Pmod Pin 3  (was 11)
-set_property -dict { PACKAGE_PIN T18   IOSTANDARD LVCMOS33 } [get_ports { adc_data[1] }];  # Pmod Pin 4  (was 12)
-set_property -dict { PACKAGE_PIN P14   IOSTANDARD LVCMOS33 } [get_ports { adc_data[7] }];  # Pmod Pin 7  (was 6)
-set_property -dict { PACKAGE_PIN P15   IOSTANDARD LVCMOS33 } [get_ports { adc_data[8] }];  # Pmod Pin 8  (was 5)
-set_property -dict { PACKAGE_PIN N15   IOSTANDARD LVCMOS33 } [get_ports { adc_data[5] }];  # Pmod Pin 9  (was 8)
-set_property -dict { PACKAGE_PIN P16   IOSTANDARD LVCMOS33 } [get_ports { adc_data[6] }];  # Pmod Pin 10 (was 7)
+## PMOD Header JB (OTR & Parallel ADC Upper Bits)
+set_property -dict { PACKAGE_PIN P17   IOSTANDARD LVCMOS33 } [get_ports { otr }];          # JB 1 (Pmod Pin 1)  - OTR
+set_property -dict { PACKAGE_PIN P18   IOSTANDARD LVCMOS33 } [get_ports { adc_data[12] }]; # JB 2 (Pmod Pin 2)  - ADC_BIT12
+set_property -dict { PACKAGE_PIN R18   IOSTANDARD LVCMOS33 } [get_ports { adc_data[11] }]; # JB 3 (Pmod Pin 3)  - ADC_BIT11
+set_property -dict { PACKAGE_PIN T18   IOSTANDARD LVCMOS33 } [get_ports { adc_data[10] }]; # JB 4 (Pmod Pin 4)  - ADC_BIT10
+set_property -dict { PACKAGE_PIN P14   IOSTANDARD LVCMOS33 } [get_ports { adc_data[6] }];  # JB 5 (Pmod Pin 7)  - ADC_BIT6
+set_property -dict { PACKAGE_PIN P15   IOSTANDARD LVCMOS33 } [get_ports { adc_data[7] }];  # JB 6 (Pmod Pin 8)  - ADC_BIT7
+set_property -dict { PACKAGE_PIN N15   IOSTANDARD LVCMOS33 } [get_ports { adc_data[8] }];  # JB 7 (Pmod Pin 9)  - ADC_BIT8
+set_property -dict { PACKAGE_PIN P16   IOSTANDARD LVCMOS33 } [get_ports { adc_data[9] }];  # JB 8 (Pmod Pin 10) - ADC_BIT9
 
 
-## PMOD Header JC (Parallel ADC Pins - Bottom Row - FLIPPED)
-#set_property -dict { PACKAGE_PIN U15   IOSTANDARD LVCMOS33 } [get_ports { jc[0] }]; # Pmod Pin 1
-#set_property -dict { PACKAGE_PIN V16   IOSTANDARD LVCMOS33 } [get_ports { jc[1] }]; # Pmod Pin 2
-#set_property -dict { PACKAGE_PIN U17   IOSTANDARD LVCMOS33 } [get_ports { jc[2] }]; # Pmod Pin 3
-#set_property -dict { PACKAGE_PIN U18   IOSTANDARD LVCMOS33 } [get_ports { jc[3] }]; # Pmod Pin 4
-set_property -dict { PACKAGE_PIN U16   IOSTANDARD LVCMOS33 } [get_ports { adc_data[10] }]; # Pmod Pin 7  (was 3)
-set_property -dict { PACKAGE_PIN P13   IOSTANDARD LVCMOS33 } [get_ports { adc_data[9] }];  # Pmod Pin 8  (was 4)
-set_property -dict { PACKAGE_PIN R13   IOSTANDARD LVCMOS33 } [get_ports { adc_data[12] }]; # Pmod Pin 9  (was 1)
-set_property -dict { PACKAGE_PIN V14   IOSTANDARD LVCMOS33 } [get_ports { adc_data[11] }]; # Pmod Pin 10 (was 2)
+## PMOD Header JC (Parallel ADC Lower Bits & Control)
+set_property -dict { PACKAGE_PIN U15   IOSTANDARD LVCMOS33 } [get_ports { adc_data[5] }];  # JC 1 (Pmod Pin 1)  - ADC_BIT5
+set_property -dict { PACKAGE_PIN V16   IOSTANDARD LVCMOS33 } [get_ports { adc_data[4] }];  # JC 2 (Pmod Pin 2)  - ADC_BIT4
+set_property -dict { PACKAGE_PIN U17   IOSTANDARD LVCMOS33 } [get_ports { adc_data[3] }];  # JC 3 (Pmod Pin 3)  - ADC_BIT3
+set_property -dict { PACKAGE_PIN U18   IOSTANDARD LVCMOS33 } [get_ports { adc_data[2] }];  # JC 4 (Pmod Pin 4)  - ADC_BIT2
+set_property -dict { PACKAGE_PIN U16   IOSTANDARD LVCMOS33 } [get_ports { ina }];          # JC 5 (Pmod Pin 7)  - INA
+set_property -dict { PACKAGE_PIN P13   IOSTANDARD LVCMOS33 } [get_ports { inb }];          # JC 6 (Pmod Pin 8)  - INB
+set_property -dict { PACKAGE_PIN R13   IOSTANDARD LVCMOS33 } [get_ports { oe }];           # JC 7 (Pmod Pin 9)  - OE
+set_property -dict { PACKAGE_PIN V14   IOSTANDARD LVCMOS33 } [get_ports { adc_data[1] }];  # JC 8 (Pmod Pin 10) - ADC_BIT1
 
 
 ## PMOD Header JD (UART TX)
@@ -147,7 +147,7 @@ set_property -dict { PACKAGE_PIN R12   IOSTANDARD LVCMOS33 } [get_ports { uart_t
 #set_property -dict { PACKAGE_PIN G16   IOSTANDARD LVCMOS33 } [get_ports { ck_sck }]; #IO_L14P_T2_SRCC_15 Sch=ck_io13_sck
 
 
-## CihpKit I2C
+## ChipKit I2C
 #set_property -dict { PACKAGE_PIN J14   IOSTANDARD LVCMOS33 } [get_ports { ck_scl }]; #IO_L24N_T3_RS0_15 Sch=ck_scl
 #set_property -dict { PACKAGE_PIN J13   IOSTANDARD LVCMOS33 } [get_ports { ck_sda }]; #IO_L24P_T3_RS1_15 Sch=ck_sda
 
@@ -164,7 +164,7 @@ set_property -dict { PACKAGE_PIN R12   IOSTANDARD LVCMOS33 } [get_ports { uart_t
 #set_property -dict { PACKAGE_PIN L14   IOSTANDARD LVCMOS33 } [get_ports { qspi_dq[2] }]; #IO_L2P_T0_D02_14 Sch=qspi_dq[2]
 #set_property -dict { PACKAGE_PIN M15   IOSTANDARD LVCMOS33 } [get_ports { qspi_dq[3] }]; #IO_L2N_T0_D03_14 Sch=qspi_dq[3]
 
-##Configuration options, can be used for all designs
+## Configuration options, can be used for all designs
 set_property BITSTREAM.CONFIG.CONFIGRATE 50 [current_design]
 set_property CONFIG_VOLTAGE 3.3 [current_design]
 set_property CFGBVS VCCO [current_design]
