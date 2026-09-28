@@ -14,20 +14,18 @@ The hardware is designed around a high-voltage transmit path and a highly sensit
 
 ## Repository Structure
 
-* `/Hardware/` - Altium Designer project files (`.PrjPcb`), schematics (`.SchDoc`), and PCB layouts (`.PcbDoc`).
-* `/Firmware/` - VHDL/Verilog source code for the FPGA, including the pulse controller and DSP pipelines.
-* `/Scripts/` - Python/MATLAB scripts for data parsing, signal processing visualization, and testing.
-* `/Docs/` - Datasheets, component references, and system block diagrams.
+* `/Pulser_PCB/` - Altium Designer project files (`.PrjPcb`), schematics (`.SchDoc`), and PCB layouts (`.PcbDoc`).
+* `/FPGA/` - Vivado project and VHDL/Verilog source code for the FPGA, including the pulse controller and DSP pipelines.
 
 ## Getting Started
 
 ### Prerequisites
 * **Altium Designer** for viewing, editing, and generating manufacturing files from the hardware project.
-* [Insert your FPGA Toolchain] for synthesizing the digital logic.
+* **Xilinx Vivado (2018.3 or newer)** for synthesizing the digital logic.
 
 ### Viewing the Design
-1. Clone this repository: `git clone https://github.com/yourusername/ultrasound-pcb.git`
-2. Open the hardware project file located in the `/Hardware/` directory using Altium Designer.
+1. Clone this repository: `git clone https://github.com/TengizGvelesiani/ultrasound-device.git`
+2. Open the hardware project file located in the `/Pulser_PCB/` directory using Altium Designer.
 3. The top-level schematic outlines the power distribution, high-voltage pulser, and analog receive chain.
 
 ## Current Status & Roadmap
