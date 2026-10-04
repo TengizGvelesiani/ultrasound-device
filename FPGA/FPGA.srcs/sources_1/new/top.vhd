@@ -42,16 +42,20 @@ architecture Behavioral of pulser_rtz is
     constant RELAY_SETTLE_CYCLES : integer := 5_000_000; -- 50 ms for relay bounce + 100V cap charge
     constant ENABLE_HOLD_CYCLES  : integer := 10_000;    -- 100 us after OE='1' before first pulse
 
-    -- 5 MHz Transducer Timing (Period = 200 ns -> Half-Cycle = 100 ns)
-    constant STRIKE_CYCLES       : integer := 10;        -- 100 ns (PMOS ON: 5 MHz half-wave)
-    constant DEAD_CYCLES         : integer := 4;         -- 40 ns  (both FETs OFF; margin over TC6320 turn-off, verify on scope)
-    constant DAMP_CYCLES         : integer := 10;        -- 100 ns (NMOS ON: output pulled to 0 V, return-to-zero)
+    -- Optimal 5 MHz Transducer Timing (Period = 200 ns)
+    constant STRIKE_CYCLES       : integer := 10;        -- 100 ns (PMOS ON: Pull to 100V)
+    constant DEAD_CYCLES         : integer := 4;         -- 40 ns  (Both OFF: maximum safety margin against shoot-through)
+    constant DAMP_CYCLES         : integer := 10;        -- 100 ns (NMOS ON: active return to 0V)
+    
+    -- Active damping time after the pulse to mechanically kill transducer ringing
+    constant ACTIVE_DAMP_CYCLES  : integer := 50;        -- 500 ns
+    
+    -- BURST_COUNT controls how many cycles are fired (1 for max resolution, 2+ for deeper penetration)
+    constant BURST_COUNT         : integer := 3;
 
-    -- FULL pulse-to-pulse period (IDLE + STRIKE + DEAD + DAMP), 10 ms @ 100 Hz PRF.
-    -- MUST be a multiple of 20 (ADC clock period in ticks) so the pulse keeps a
-    -- fixed phase against the ADC sample grid on every shot.
+    -- FULL pulse-to-pulse period (10 ms @ 100 Hz PRF)
     constant PRF_CYCLES          : integer := 1_000_000;
-    constant IDLE_CYCLES         : integer := PRF_CYCLES - (STRIKE_CYCLES + DEAD_CYCLES + DAMP_CYCLES);
+    constant IDLE_CYCLES         : integer := PRF_CYCLES - (BURST_COUNT * (STRIKE_CYCLES + DEAD_CYCLES * 2 + DAMP_CYCLES) + ACTIVE_DAMP_CYCLES);
 
     type state_type is (
         POWER_ON,       -- OE='0', Relay='0', wait for DAC SPI to finish
@@ -59,14 +63,17 @@ architecture Behavioral of pulser_rtz is
         DRIVER_ENABLE,  -- OE='1', Relay='1', allow MD1213 threshold to settle
         IDLE,           -- Wait for next PRF trigger
         STRIKE,         -- P-Channel ON  (INA='1', INB='1')
-        DEAD_TIME,      -- Both FETs OFF (INA='0', INB='1')
-        DAMP            -- N-Channel ON  (INA='0', INB='0')
+        DEAD_TIME_1,    -- Both FETs OFF (INA='0', INB='1')
+        DAMP,           -- N-Channel ON  (INA='0', INB='0')
+        DEAD_TIME_2,    -- Both FETs OFF before next cycle
+        ACTIVE_DAMP     -- Extended N-Channel ON to stop transducer ringing
     );
     signal current_state : state_type := POWER_ON;
     signal last_state    : state_type := POWER_ON;
 
     signal cycle_counter : integer range 0 to RELAY_SETTLE_CYCLES := 0;
     signal pulse_counter : integer range 0 to 49 := 0;
+    signal burst_counter : integer range 0 to 15 := 0;
     signal heartbeat     : STD_LOGIC := '0';
 
     -- Safe initial values: OE='0' (disabled), INA='0' (OUTA=VH), INB='1' (OUTB=VL), Relay='0'
@@ -112,15 +119,21 @@ architecture Behavioral of pulser_rtz is
     signal sq_cnt     : integer range 0 to SQ_HALF_PERIOD-1 := 0;
     signal test_pulse : std_logic := '0';
 
-    -- ===================== DAC SPI SETUP =====================
+    -- ===================== DAC SPI SETUP & TGC =====================
     signal spi_state   : integer range 0 to 2 := 0;
     signal spi_bit_idx : integer range 0 to 15 := 15;
     signal spi_clk_cnt : integer := 0;
     signal cs_r        : std_logic := '1';
     signal sck_r       : std_logic := '0';
     signal sci_r       : std_logic := '0';
+    
+    signal spi_start    : std_logic := '0';
+    signal spi_data_reg : std_logic_vector(15 downto 0) := x"3080"; -- Default low gain
+    
+    signal tgc_timer : integer := 0;
+    signal tgc_step_cnt : integer range 0 to 255 := 0;
+    signal tgc_value : integer range 0 to 4095 := 128;
 
-    constant spi_data  : std_logic_vector(15 downto 0) := x"33E8";
 
     function to_hex_char(vec : std_logic_vector(3 downto 0)) return std_logic_vector is
         variable ext_vec : unsigned(7 downto 0);
@@ -132,6 +145,8 @@ architecture Behavioral of pulser_rtz is
             return std_logic_vector(ext_vec + 55);
         end if;
     end function;
+
+    signal spi_init_done : std_logic := '0';
 
 begin
 
@@ -159,35 +174,83 @@ begin
                 adc_data(5)  & adc_data(6)  & adc_data(7)  & adc_data(8)  &
                 adc_data(9)  & adc_data(10) & adc_data(11) & adc_data(12);
 
-    -- ===================== DAC SPI PROCESS =====================
+    -- ===================== DAC SPI PROCESS (10 MHz) =====================
     process(CLK100MHZ)
     begin
         if rising_edge(CLK100MHZ) then
             if spi_state = 0 then
-                if spi_clk_cnt = 1000 then
-                    cs_r        <= '0';
-                    sci_r       <= spi_data(15);
+                cs_r  <= '1';
+                sck_r <= '0';
+                
+                -- Auto-trigger the first configuration for boot
+                if spi_init_done = '0' and spi_start = '0' and cycle_counter > 100 then
                     spi_clk_cnt <= 0;
+                    spi_bit_idx <= 15;
                     spi_state   <= 1;
-                else
-                    spi_clk_cnt <= spi_clk_cnt + 1;
+                elsif spi_start = '1' then
+                    spi_clk_cnt <= 0;
+                    spi_bit_idx <= 15;
+                    spi_state   <= 1;
                 end if;
+                
             elsif spi_state = 1 then
-                if spi_clk_cnt = 49 then
-                    sck_r       <= '1';
+                if spi_clk_cnt = 0 then
+                    cs_r  <= '0';
+                    sci_r <= spi_data_reg(spi_bit_idx);
                     spi_clk_cnt <= spi_clk_cnt + 1;
-                elsif spi_clk_cnt = 99 then
-                    sck_r       <= '0';
+                elsif spi_clk_cnt = 4 then
+                    sck_r <= '1';
+                    spi_clk_cnt <= spi_clk_cnt + 1;
+                elsif spi_clk_cnt = 9 then
+                    sck_r <= '0';
                     spi_clk_cnt <= 0;
                     if spi_bit_idx = 0 then
-                        cs_r      <= '1';
-                        spi_state <= 2; -- DAC initialized!
+                        cs_r <= '1';
+                        spi_state <= 2;
                     else
                         spi_bit_idx <= spi_bit_idx - 1;
-                        sci_r       <= spi_data(spi_bit_idx - 1);
                     end if;
                 else
                     spi_clk_cnt <= spi_clk_cnt + 1;
+                end if;
+            elsif spi_state = 2 then
+                cs_r <= '1';
+                spi_init_done <= '1';
+                spi_state <= 0; -- return to IDLE
+            end if;
+        end if;
+    end process;
+
+    -- ===================== TGC SWEEP PROCESS (Smooth Ramp) =====================
+    process(CLK100MHZ)
+    begin
+        if rising_edge(CLK100MHZ) then
+            spi_start <= '0'; -- default
+
+            if current_state = STRIKE and last_state = IDLE then
+                tgc_timer <= 1;
+                tgc_step_cnt <= 0;
+                tgc_value <= 128; -- start gain (~0.06V)
+                spi_data_reg <= x"3080"; -- 0x3080 = Gain 128
+                spi_start <= '1';
+            elsif tgc_timer > 0 then
+                if tgc_timer < 25000 then
+                    tgc_timer <= tgc_timer + 1;
+                else
+                    tgc_timer <= 0; -- stop after 250 us
+                end if;
+
+                -- Smoothly ramp the DAC up to 2000 over the 200us window
+                -- Update every 200 clock ticks (2.0 us)
+                if tgc_step_cnt = 199 then
+                    tgc_step_cnt <= 0;
+                    if tgc_value < 2000 then
+                        tgc_value <= tgc_value + 19; -- step up (~10 mV)
+                        spi_data_reg <= x"3" & std_logic_vector(to_unsigned(tgc_value, 12));
+                        spi_start <= '1';
+                    end if;
+                else
+                    tgc_step_cnt <= tgc_step_cnt + 1;
                 end if;
             end if;
         end if;
@@ -214,7 +277,7 @@ begin
                     inb_r   <= '1';
 
                     -- Only advance after 1 ms AND after DAC SPI initialization is complete
-                    if cycle_counter >= POWERON_HOLD_CYCLES - 1 and spi_state = 2 then
+                    if cycle_counter >= POWERON_HOLD_CYCLES - 1 and spi_init_done = '1' then
                         cycle_counter <= 0;
                         current_state <= RELAY_SETTLE;
                     elsif cycle_counter < POWERON_HOLD_CYCLES - 1 then
@@ -253,7 +316,6 @@ begin
 
                 when IDLE =>
                     -- Both FETs OFF (OE='1', INA='0' -> OUTA=VH, INB='1' -> OUTB=VL)
-                    -- IDLE_CYCLES = PRF_CYCLES - pulse length, so the full period is exactly PRF_CYCLES
                     relay_r <= '1';
                     oe_r    <= '1';
                     ina_r   <= '0';
@@ -261,6 +323,7 @@ begin
 
                     if cycle_counter >= IDLE_CYCLES - 1 then
                         cycle_counter <= 0;
+                        burst_counter <= 0;
                         current_state <= STRIKE;
                         if pulse_counter >= 49 then
                             pulse_counter <= 0;
@@ -274,7 +337,7 @@ begin
 
                 when STRIKE =>
                     -- P-Channel ON (INA='1' -> OUTA=VL), N-Channel OFF (INB='1' -> OUTB=VL)
-                    -- Drives 100 ns positive HV pulse into 5 MHz transducer
+                    -- Drives positive HV pulse into 5 MHz transducer
                     relay_r <= '1';
                     oe_r    <= '1';
                     ina_r   <= '1';
@@ -282,13 +345,13 @@ begin
 
                     if cycle_counter >= STRIKE_CYCLES - 1 then
                         cycle_counter <= 0;
-                        current_state <= DEAD_TIME;
+                        current_state <= DEAD_TIME_1;
                     else
                         cycle_counter <= cycle_counter + 1;
                     end if;
 
-                when DEAD_TIME =>
-                    -- Both FETs OFF for 40 ns to prevent shoot-through
+                when DEAD_TIME_1 =>
+                    -- Both FETs OFF to prevent shoot-through
                     relay_r <= '1';
                     oe_r    <= '1';
                     ina_r   <= '0';
@@ -303,13 +366,46 @@ begin
 
                 when DAMP =>
                     -- P-Channel OFF (INA='0' -> OUTA=VH), N-Channel ON (INB='0' -> OUTB=VH)
-                    -- Active return-to-zero: output pulled to 0 V for 100 ns
+                    -- Active return-to-zero: output pulled to 0 V
                     relay_r <= '1';
                     oe_r    <= '1';
                     ina_r   <= '0';
                     inb_r   <= '0';
 
                     if cycle_counter >= DAMP_CYCLES - 1 then
+                        cycle_counter <= 0;
+                        if burst_counter >= BURST_COUNT - 1 then
+                            current_state <= ACTIVE_DAMP;
+                        else
+                            burst_counter <= burst_counter + 1;
+                            current_state <= DEAD_TIME_2;
+                        end if;
+                    else
+                        cycle_counter <= cycle_counter + 1;
+                    end if;
+
+                when DEAD_TIME_2 =>
+                    -- Both FETs OFF to prevent shoot-through before next STRIKE
+                    relay_r <= '1';
+                    oe_r    <= '1';
+                    ina_r   <= '0';
+                    inb_r   <= '1';
+
+                    if cycle_counter >= DEAD_CYCLES - 1 then
+                        cycle_counter <= 0;
+                        current_state <= STRIKE;
+                    else
+                        cycle_counter <= cycle_counter + 1;
+                    end if;
+
+                when ACTIVE_DAMP =>
+                    -- Final extended clamping to GND to stop all transducer mechanical ringing
+                    relay_r <= '1';
+                    oe_r    <= '1';
+                    ina_r   <= '0';
+                    inb_r   <= '0';
+
+                    if cycle_counter >= ACTIVE_DAMP_CYCLES - 1 then
                         cycle_counter <= 0;
                         current_state <= IDLE;
                     else
