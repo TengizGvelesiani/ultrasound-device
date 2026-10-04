@@ -4,13 +4,23 @@ An open-source hardware and firmware project for a portable ultrasound system. T
 
 ## System Architecture
 
-The hardware is designed around a high-voltage transmit path and a highly sensitive, low-noise receive path, coordinated by an FPGA for precise timing and signal processing.
+The architecture is divided into three main domains: the analog high-voltage front end, the FPGA-based digital signal processor (DSP), and the Python-based visualization software.
 
-### Key Components
-* **High-Voltage Pulser:** Unipolar high-voltage pulser circuit utilizing an **MD1213** high-speed dual-MOSFET driver paired with a **TC6320** complementary MOSFET pair for driving the ultrasonic transducer.
-* **Analog Front End (AFE):** Features an **AD8331** Variable Gain Amplifier (VGA) optimized for ultrasound applications, ensuring low noise and high dynamic range for incoming echo signals.
-* **Data Acquisition:** An **AD9226** Analog-to-Digital Converter (ADC) captures the amplified high-frequency RF signals.
-* **Digital Signal Processing:** FPGA-based architecture handles precise transmit-receive (T/R) switching, pulse generation, and real-time digital signal processing of the incoming ADC data stream.
+### Hardware & Analog Front End (AFE)
+* **High-Voltage Pulser:** A high-voltage pulser circuit utilizing an **MD1213** high-speed dual-MOSFET driver paired with a **TC6320** complementary MOSFET pair. The FPGA generates highly precise transmit bursts (e.g., 3-cycle 5 MHz bursts) to ring the ultrasonic transducer.
+* **Variable Gain Amplifier:** Features an **AD8331** Variable Gain Amplifier (VGA) optimized for ultrasound applications. The gain is dynamically driven by a hardware Time Gain Compensation (TGC) ramp using an **MCP4821** DAC to compensate for exponential acoustic attenuation in tissue.
+* **Data Acquisition:** An **AD9226** Analog-to-Digital Converter (ADC) captures the amplified high-frequency RF signals at 20 MSPS.
+
+### FPGA Digital Signal Processing (DSP)
+The FPGA manages microsecond-precise transmit-receive (T/R) switching and processes the incoming 20 MHz data stream in real-time:
+* **DC Blocking:** An Exponentially Weighted Moving Average (EWMA) high-pass filter actively tracks and rejects the ADC baseline DC offset.
+* **Quadrature Demodulation:** Multiplier-less $f_s/4$ mixing (`[1, 0, -1, 0]`) brings the 5 MHz carrier frequency down to baseband.
+* **Filtering & Magnitude:** FIR filters smooth the separated I and Q channels, and a hardware CORDIC calculates the exact signal magnitude ($\sqrt{I^2 + Q^2}$).
+* **Log Compression:** To map the massive acoustic dynamic range to a visible spectrum, a BRAM-based Look-Up Table applies logarithmic compression before decimation.
+
+### Software Stack & Visualization
+* **High-Speed Telemetry:** The compressed ultrasound envelope is streamed over a 2,000,000 baud binary UART interface.
+* **Python GUI:** A custom Python application reconstructs the data into a real-time medical-grade B-Scan waterfall using a `bone` colormap. The software applies customizable noise squelch (`NOISE_REJECT`) and contrast gain for optimal imaging of various targets.
 
 ## Repository Structure
 
@@ -32,9 +42,11 @@ The hardware is designed around a high-voltage transmit path and a highly sensit
 
 * [x] Initial schematic capture (Pulser, VGA, ADC)
 * [x] PCB layout and routing
-* [ ] Board bring-up and power sequence testing
-* [ ] FPGA pulse generation and T/R switch timing verification
-* [ ] Echo acquisition and DSP filtering
+* [x] Board bring-up and power sequence testing
+* [x] FPGA pulse generation and T/R switch timing verification (tuned for 5 MHz resonance)
+* [x] Echo acquisition and DSP filtering (stable decimation, FIR, CORDIC)
+* [x] Software visualization and UART pipeline integration
+* [ ] Mechanical scanning and full 2D B-Scan implementation
 
 ## Disclaimer
 
