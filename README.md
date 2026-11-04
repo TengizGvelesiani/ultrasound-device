@@ -1,6 +1,6 @@
-# Portable Ultrasound System PCB
+# Single Element Ultrasound Device
 
-An open-source hardware and firmware project for a portable ultrasound system. This repository contains the schematic designs, PCB layouts, and FPGA-based digital signal processing infrastructure required to drive ultrasonic transducers, receive echoes, and process the resulting data.
+An open-source hardware and firmware project for an ultrasound system. This repository contains the schematic designs, PCB layouts, and FPGA-based digital signal processing infrastructure required to drive ultrasonic transducers, receive echoes, and process the resulting data.
 
 ## System Architecture
 
