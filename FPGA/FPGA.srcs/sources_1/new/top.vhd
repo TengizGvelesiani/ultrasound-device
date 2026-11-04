@@ -23,7 +23,35 @@ entity pulser_rtz is
         otr       : in  STD_LOGIC;
 
         uart_tx   : out STD_LOGIC;
-        test_out  : out STD_LOGIC
+
+        -- Stepper Motor Interface (Dual Y-Axis Lead Screws & X-Axis)
+        -- Motor 1 (Y1 Lead Screw)
+        io0       : out STD_LOGIC; -- Y1 DIR
+        io1       : out STD_LOGIC; -- Y1 STEP
+        io2       : out STD_LOGIC; -- Y1 MS1 (HIGH = 1/16 microstep)
+        io3       : out STD_LOGIC; -- Y1 MS2 (HIGH = 1/16 microstep)
+        io4       : out STD_LOGIC; -- Y1 MS3 (HIGH = 1/16 microstep)
+        io5       : out STD_LOGIC; -- Y1 SLEEP (HIGH = Awake)
+        io6       : out STD_LOGIC; -- Y1 RESET (HIGH = Run)
+
+        -- Motor 2 (Y2 Lead Screw)
+        io7       : out STD_LOGIC; -- Y2 DIR
+        io8       : out STD_LOGIC; -- Y2 STEP
+        io9       : out STD_LOGIC; -- Y2 MS1 (HIGH = 1/16 microstep)
+        io10      : out STD_LOGIC; -- Y2 MS2 (HIGH = 1/16 microstep)
+        io11      : out STD_LOGIC; -- Y2 MS3 (HIGH = 1/16 microstep)
+        io12      : out STD_LOGIC; -- Y2 SLEEP (HIGH = Awake)
+        io13      : out STD_LOGIC; -- Y2 RESET (HIGH = Run)
+
+        -- Motor 3 (X-Axis)
+        io26      : out STD_LOGIC; -- X DIR
+        io27      : out STD_LOGIC; -- X STEP
+        io28      : out STD_LOGIC; -- X PULLUP (MS1)
+        io29      : out STD_LOGIC; -- X PULLUP (MS2)
+        io30      : out STD_LOGIC; -- X PULLUP (MS3)
+        io31      : out STD_LOGIC; -- X PULLUP (SLEEP)
+        io32      : out STD_LOGIC; -- X PULLUP (RESET)
+        io33      : out STD_LOGIC  -- X PULLUP (ENABLE / AUX)
     );
 end pulser_rtz;
 
@@ -139,12 +167,56 @@ architecture Behavioral of pulser_rtz is
     signal spi_init_done : std_logic := '0';
     signal test_pulse : std_logic := '0';
 
+    -- Stepper motor parameters (Dual Y-Axis Lead Screws)
+    -- With 1/16 microstepping (MS1=MS2=MS3='1'), 1 revolution = 200 * 16 = 3,200 steps
+    -- 100 MHz / (2 * 31_250) = 1,600 Hz step frequency
+    -- Travel distance = 25 cm (250 mm)
+    -- On standard T8 lead screw (8 mm lead): 400 steps/mm -> 250 mm * 400 = 100,000 steps
+    constant STEP_HALF_PERIOD : integer := 31_250;
+    constant TRAVEL_STEPS     : integer := 100_000;
+    constant PAUSE_CYCLES     : integer := 50_000_000; -- 0.5 sec pause at 100 MHz
+
+    type y_state_type is (START_DELAY, MOVE_FORWARD, PAUSE_FAR_END, MOVE_RETURN, FINISHED);
+    signal y_state     : y_state_type := START_DELAY;
+    signal y_step_cnt  : integer range 0 to TRAVEL_STEPS := 0;
+    signal timer_cnt   : integer range 0 to PAUSE_CYCLES := 0;
+    signal step_timer  : integer range 0 to STEP_HALF_PERIOD := 0;
+    signal y_step_r    : std_logic := '0';
+    signal y_dir_r     : std_logic := '1'; -- Start with reverse of previous '0'
+
 begin
 
     relay <= relay_r; oe <= oe_r; ina <= ina_r; inb <= inb_r;
-    clk <= adc_clk_div; test_out <= test_pulse; cs <= cs_r; sck <= sck_r; sci <= sci_r;
+    clk <= adc_clk_div; cs <= cs_r; sck <= sck_r; sci <= sci_r;
     rgb_led(1) <= heartbeat; rgb_led(4) <= relay_r; 
     rgb_led(0) <= '0'; rgb_led(2) <= '0'; rgb_led(3) <= '0'; rgb_led(5) <= '0';
+    -- Motor 1 outputs (Y-Axis Lead Screw 1)
+    io0 <= y_dir_r;
+    io1 <= y_step_r;
+    io2 <= '1';
+    io3 <= '1';
+    io4 <= '1';
+    io5 <= '1';
+    io6 <= '1';
+
+    -- Motor 2 outputs (Y-Axis Lead Screw 2: synchronized same direction, same speed)
+    io7  <= y_dir_r;
+    io8  <= y_step_r;
+    io9  <= '1';
+    io10 <= '1';
+    io11 <= '1';
+    io12 <= '1';
+    io13 <= '1';
+
+    -- Motor 3 outputs (X-Axis: idle for now)
+    io26 <= '0';
+    io27 <= '0';
+    io28 <= '1';
+    io29 <= '1';
+    io30 <= '1';
+    io31 <= '1';
+    io32 <= '1';
+    io33 <= '1';
 
     -- adc wire mapping
     adc_word <= adc_data(1)  & adc_data(2)  & adc_data(3)  & adc_data(4)  &
@@ -388,10 +460,11 @@ begin
                     tgc_timer <= 0;
                 end if;
                 
+                -- Step every 200 cycles (2.0 us). Ramp from 128 to ~3000 in ~44 us (matching ~32-35 mm target depth)
                 if tgc_step_cnt = 199 then
                     tgc_step_cnt <= 0;
                     if tgc_value < 3000 then
-                        tgc_value <= tgc_value + 75;
+                        tgc_value <= tgc_value + 135;
                         spi_data_reg <= x"3" & std_logic_vector(to_unsigned(tgc_value, 12));
                         spi_start <= '1';
                     end if;
@@ -538,6 +611,82 @@ begin
                     ina_r <= '0';
                     inb_r <= '1';
                     current_state <= POWER_ON;
+            end case;
+        end if;
+    end process;
+
+    -- Dual Y-axis stepper motor scan process
+    -- Moves 25 cm forward (100,000 steps in direction '1'), pauses 0.5s, then returns (100,000 steps in direction '0')
+    process(CLK100MHZ)
+    begin
+        if rising_edge(CLK100MHZ) then
+            case y_state is
+                when START_DELAY =>
+                    y_step_r   <= '0';
+                    y_dir_r    <= '1'; -- Start in reverse direction of previous ('1')
+                    step_timer <= 0;
+                    y_step_cnt <= 0;
+                    if timer_cnt >= PAUSE_CYCLES - 1 then
+                        timer_cnt <= 0;
+                        y_state   <= MOVE_FORWARD;
+                    else
+                        timer_cnt <= timer_cnt + 1;
+                    end if;
+
+                when MOVE_FORWARD =>
+                    y_dir_r <= '1';
+                    if step_timer >= STEP_HALF_PERIOD - 1 then
+                        step_timer <= 0;
+                        y_step_r   <= not y_step_r;
+                        -- Count 1 step on falling edge (completed full high-low pulse)
+                        if y_step_r = '1' then
+                            if y_step_cnt >= TRAVEL_STEPS - 1 then
+                                y_step_cnt <= 0;
+                                y_step_r   <= '0';
+                                timer_cnt  <= 0;
+                                y_state    <= PAUSE_FAR_END;
+                            else
+                                y_step_cnt <= y_step_cnt + 1;
+                            end if;
+                        end if;
+                    else
+                        step_timer <= step_timer + 1;
+                    end if;
+
+                when PAUSE_FAR_END =>
+                    y_step_r   <= '0';
+                    y_dir_r    <= '0'; -- Set return direction
+                    step_timer <= 0;
+                    if timer_cnt >= PAUSE_CYCLES - 1 then
+                        timer_cnt <= 0;
+                        y_step_cnt <= 0;
+                        y_state   <= MOVE_RETURN;
+                    else
+                        timer_cnt <= timer_cnt + 1;
+                    end if;
+
+                when MOVE_RETURN =>
+                    y_dir_r <= '0'; -- Returning back
+                    if step_timer >= STEP_HALF_PERIOD - 1 then
+                        step_timer <= 0;
+                        y_step_r   <= not y_step_r;
+                        -- Count 1 step on falling edge (completed full high-low pulse)
+                        if y_step_r = '1' then
+                            if y_step_cnt >= TRAVEL_STEPS - 1 then
+                                y_step_cnt <= 0;
+                                y_step_r   <= '0';
+                                y_state    <= FINISHED;
+                            else
+                                y_step_cnt <= y_step_cnt + 1;
+                            end if;
+                        end if;
+                    else
+                        step_timer <= step_timer + 1;
+                    end if;
+
+                when FINISHED =>
+                    y_step_r <= '0';
+                    -- Completed round-trip back to origin; hold position
             end case;
         end if;
     end process;

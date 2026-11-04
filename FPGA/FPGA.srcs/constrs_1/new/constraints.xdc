@@ -73,7 +73,7 @@ set_property -dict { PACKAGE_PIN V14   IOSTANDARD LVCMOS33 } [get_ports { adc_da
 
 
 ## PMOD Header JD (UART TX)
-set_property -dict { PACKAGE_PIN V15   IOSTANDARD LVCMOS33 } [get_ports { test_out }]; # Pmod Pin 1
+#set_property -dict { PACKAGE_PIN V15   IOSTANDARD LVCMOS33 } [get_ports { test_out }]; # Pmod Pin 1 (Shared with IO33)
 #set_property -dict { PACKAGE_PIN U12   IOSTANDARD LVCMOS33 } [get_ports { jd[1] }]; # Pmod Pin 2
 #set_property -dict { PACKAGE_PIN V13   IOSTANDARD LVCMOS33 } [get_ports { jd[2] }]; # Pmod Pin 3
 #set_property -dict { PACKAGE_PIN T12   IOSTANDARD LVCMOS33 } [get_ports { jd[3] }]; # Pmod Pin 4
@@ -92,21 +92,23 @@ set_property -dict { PACKAGE_PIN R12   IOSTANDARD LVCMOS33 } [get_ports { uart_t
 #set_property -dict {PACKAGE_PIN K9} [get_ports Vp_Vn_v_n]
 
 
-## ChipKit Digital I/O Low
-#set_property -dict { PACKAGE_PIN L13   IOSTANDARD LVCMOS33 } [get_ports { ck_io[0] }]; #IO_0_14 Sch=ck_io[0]
-#set_property -dict { PACKAGE_PIN N13   IOSTANDARD LVCMOS33 } [get_ports { ck_io[1] }]; #IO_L6N_T0_D08_VREF_14 Sch=ck_io[1]
-#set_property -dict { PACKAGE_PIN L16   IOSTANDARD LVCMOS33 } [get_ports { ck_io[2] }]; #IO_L3N_T0_DQS_EMCCLK_14 Sch=ck_io[2]
-#set_property -dict { PACKAGE_PIN R14   IOSTANDARD LVCMOS33 } [get_ports { ck_io[3] }]; #IO_L13P_T2_MRCC_14 Sch=ck_io[3]
-#set_property -dict { PACKAGE_PIN T14   IOSTANDARD LVCMOS33 } [get_ports { ck_io[4] }]; #IO_L13N_T2_MRCC_14 Sch=ck_io[4]
-#set_property -dict { PACKAGE_PIN R16   IOSTANDARD LVCMOS33 } [get_ports { ck_io[5] }]; #IO_L14P_T2_SRCC_14 Sch=ck_io[5]
-#set_property -dict { PACKAGE_PIN R17   IOSTANDARD LVCMOS33 } [get_ports { ck_io[6] }]; #IO_L14N_T2_SRCC_14 Sch=ck_io[6]
-#set_property -dict { PACKAGE_PIN V17   IOSTANDARD LVCMOS33 } [get_ports { ck_io[7] }]; #IO_L16N_T2_A15_D31_14 Sch=ck_io[7]
-#set_property -dict { PACKAGE_PIN R15   IOSTANDARD LVCMOS33 } [get_ports { ck_io[8] }]; #IO_L17P_T2_A14_D30_14 Sch=ck_io[8]
-#set_property -dict { PACKAGE_PIN T15   IOSTANDARD LVCMOS33 } [get_ports { ck_io[9] }]; #IO_L17N_T2_A13_D29_14 Sch=ck_io[9]
-#set_property -dict { PACKAGE_PIN H16   IOSTANDARD LVCMOS33 } [get_ports { ck_io[10] }]; #IO_L22P_T3_A17_15 Sch=ck_io10_ss
-#set_property -dict { PACKAGE_PIN H17   IOSTANDARD LVCMOS33 } [get_ports { ck_io[11] }]; #IO_L22N_T3_A16_15 Sch=ck_io11_mosi
-#set_property -dict { PACKAGE_PIN K14   IOSTANDARD LVCMOS33 } [get_ports { ck_io[12] }]; #IO_L23P_T3_FOE_B_15 Sch=ck_io12_miso
-#set_property -dict { PACKAGE_PIN G16   IOSTANDARD LVCMOS33 } [get_ports { ck_io[13] }]; #IO_L14P_T2_SRCC_15 Sch=ck_io13_sck
+## ChipKit Digital I/O Low - Y-Axis Dual Stepper Motor Interface
+# Motor 1 (Y-Axis Lead Screw 1)
+set_property -dict { PACKAGE_PIN L13   IOSTANDARD LVCMOS33 } [get_ports { io0 }]; #IO_0_14 Sch=ck_io[0] - Stepper DIR
+set_property -dict { PACKAGE_PIN N13   IOSTANDARD LVCMOS33 } [get_ports { io1 }]; #IO_L6N_T0_D08_VREF_14 Sch=ck_io[1] - Stepper STEP
+set_property -dict { PACKAGE_PIN L16   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io2 }]; #IO_L3N_T0_DQS_EMCCLK_14 Sch=ck_io[2] - MS1 (HIGH)
+set_property -dict { PACKAGE_PIN R14   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io3 }]; #IO_L13P_T2_MRCC_14 Sch=ck_io[3] - MS2 (HIGH)
+set_property -dict { PACKAGE_PIN T14   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io4 }]; #IO_L13N_T2_MRCC_14 Sch=ck_io[4] - MS3 (HIGH)
+set_property -dict { PACKAGE_PIN R16   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io5 }]; #IO_L14P_T2_SRCC_14 Sch=ck_io[5] - SLEEP (HIGH)
+set_property -dict { PACKAGE_PIN R17   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io6 }]; #IO_L14N_T2_SRCC_14 Sch=ck_io[6] - RESET (HIGH)
+# Motor 2 (Y-Axis Lead Screw 2)
+set_property -dict { PACKAGE_PIN V17   IOSTANDARD LVCMOS33 } [get_ports { io7 }]; #IO_L16N_T2_A15_D31_14 Sch=ck_io[7] - Y2_DIR (Direction)
+set_property -dict { PACKAGE_PIN R15   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io8 }]; #IO_L17P_T2_A14_D30_14 Sch=ck_io[8] - Y2_STEP (Step Pulse)
+set_property -dict { PACKAGE_PIN T15   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io9 }]; #IO_L17N_T2_A13_D29_14 Sch=ck_io[9] - Y2_MS1 (1/16 Step)
+set_property -dict { PACKAGE_PIN H16   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io10 }]; #IO_L22P_T3_A17_15 Sch=ck_io10_ss - Y2_MS2 (1/16 Step)
+set_property -dict { PACKAGE_PIN H17   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io11 }]; #IO_L22N_T3_A16_15 Sch=ck_io11_mosi - Y2_MS3 (1/16 Step)
+set_property -dict { PACKAGE_PIN K14   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io12 }]; #IO_L23P_T3_FOE_B_15 Sch=ck_io12_miso - Y2_SLEEP (Awake)
+set_property -dict { PACKAGE_PIN G16   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io13 }]; #IO_L14P_T2_SRCC_15 Sch=ck_io13_sck - Y2_RESET (Run)
 
 
 ## ChipKit Digital I/O On Outer Analog Header
@@ -121,14 +123,15 @@ set_property -dict { PACKAGE_PIN R12   IOSTANDARD LVCMOS33 } [get_ports { uart_t
 
 ## ChipKit Digital I/O High
 ## Note: these pins are shared with PMOD Headers JC and JD and cannot be used at the same time as the applicable PMOD interface(s)
-#set_property -dict { PACKAGE_PIN U11   IOSTANDARD LVCMOS33 } [get_ports { ck_io[26] }]; #IO_L24P_T3_A01_D17_14 Sch=jd10/ck_io[26]
-#set_property -dict { PACKAGE_PIN T11   IOSTANDARD LVCMOS33 } [get_ports { ck_io[27] }]; #IO_L23N_T3_A02_D18_14 Sch=jd9/ck_io[27]
-#set_property -dict { PACKAGE_PIN R11   IOSTANDARD LVCMOS33 } [get_ports { ck_io[28] }]; #IO_L23P_T3_A03_D19_14 Sch=jd8/ck_io[28]
-#set_property -dict { PACKAGE_PIN T13   IOSTANDARD LVCMOS33 } [get_ports { ck_io[29] }]; #IO_L22N_T3_A04_D20_14 Sch=jd7/ck_io[29]
-#set_property -dict { PACKAGE_PIN T12   IOSTANDARD LVCMOS33 } [get_ports { ck_io[30] }]; #IO_L22P_T3_A05_D21_14 Sch=jd4/ck_io[30]
-#set_property -dict { PACKAGE_PIN V13   IOSTANDARD LVCMOS33 } [get_ports { ck_io[31] }]; #IO_L21N_T3_DQS_A06_D22_14 Sch=jd3/ck_io[31]
-#set_property -dict { PACKAGE_PIN U12   IOSTANDARD LVCMOS33 } [get_ports { ck_io[32] }]; #IO_L21P_T3_DQS_14 Sch=jd2/ck_io[32]
-#set_property -dict { PACKAGE_PIN V15   IOSTANDARD LVCMOS33 } [get_ports { ck_io[33] }]; #IO_L20N_T3_A07_D23_14 Sch=jd1/ck_io[33]
+# Motor 3 (X-Axis)
+set_property -dict { PACKAGE_PIN U11   IOSTANDARD LVCMOS33 } [get_ports { io26 }]; #IO_L24P_T3_A01_D17_14 Sch=jd10/ck_io[26] - X_DIR (Direction)
+set_property -dict { PACKAGE_PIN T11   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io27 }]; #IO_L23N_T3_A02_D18_14 Sch=jd9/ck_io[27] - X_STEP (Step Pulse)
+set_property -dict { PACKAGE_PIN R11   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io28 }]; #IO_L23P_T3_A03_D19_14 Sch=jd8/ck_io[28] - X_MS1 (1/16 Step)
+set_property -dict { PACKAGE_PIN T13   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io29 }]; #IO_L22N_T3_A04_D20_14 Sch=jd7/ck_io[29] - X_MS2 (1/16 Step)
+set_property -dict { PACKAGE_PIN T12   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io30 }]; #IO_L22P_T3_A05_D21_14 Sch=jd4/ck_io[30] - X_MS3 (1/16 Step)
+set_property -dict { PACKAGE_PIN V13   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io31 }]; #IO_L21N_T3_DQS_A06_D22_14 Sch=jd3/ck_io[31] - X_SLEEP (Awake)
+set_property -dict { PACKAGE_PIN U12   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io32 }]; #IO_L21P_T3_DQS_14 Sch=jd2/ck_io[32] - X_RESET (Run)
+set_property -dict { PACKAGE_PIN V15   IOSTANDARD LVCMOS33   PULLUP TRUE } [get_ports { io33 }]; #IO_L20N_T3_A07_D23_14 Sch=jd1/ck_io[33] - X_PULLUP (HIGH)
 #set_property -dict { PACKAGE_PIN V14   IOSTANDARD LVCMOS33 } [get_ports { ck_io[34] }]; #IO_L20P_T3_A08_D24_14 Sch=jc10/ck_io[34]
 #set_property -dict { PACKAGE_PIN R13   IOSTANDARD LVCMOS33 } [get_ports { ck_io[35] }]; #IO_L19N_T3_A09_D25_VREF_14 Sch=jc9/ck_io[35]
 #set_property -dict { PACKAGE_PIN P13   IOSTANDARD LVCMOS33 } [get_ports { ck_io[36] }]; #IO_L19P_T3_A10_D26_14 Sch=jc8/ck_io[36]
