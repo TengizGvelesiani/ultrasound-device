@@ -1,0 +1,106 @@
+package com.ultrasound.bscan;
+
+import com.ultrasound.bscan.model.PeakEcho;
+import com.ultrasound.bscan.model.ScanConfig;
+import com.ultrasound.bscan.model.VolumeBuffer;
+import com.ultrasound.bscan.model.VolumeScanConfig;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class VolumeBufferTest {
+
+    private ScanConfig scanConfig;
+    private VolumeScanConfig volumeConfig;
+    private VolumeBuffer volumeBuffer;
+
+    @BeforeEach
+    void setUp() {
+        scanConfig = new ScanConfig();
+        volumeConfig = new VolumeScanConfig(5, 4, 1.0, 1.0, VolumeScanConfig.ScanPattern.SNAKE, 10.0, 50.0);
+        volumeBuffer = new VolumeBuffer(scanConfig.getNumSamples(), volumeConfig);
+    }
+
+    @Test
+    void testSnakeRasterProgression() {
+        assertEquals(0, volumeBuffer.getCurrentX());
+        assertEquals(0, volumeBuffer.getCurrentY());
+
+        byte[] raw = new byte[scanConfig.getNumSamples()];
+        float[] proc = new float[scanConfig.getNumSamples()];
+        PeakEcho peak = PeakEcho.of(35.0, 150.0f, 200);
+
+        // Row 0 (Y=0): X goes 0 -> 1 -> 2 -> 3 -> 4
+        for (int x = 0; x < 5; x++) {
+            assertEquals(x, volumeBuffer.getCurrentX());
+            assertEquals(0, volumeBuffer.getCurrentY());
+            volumeBuffer.recordCurrentPoint(raw, proc, peak, scanConfig, volumeConfig);
+        }
+
+        // Row 1 (Y=1): Snake reverses, so X starts at 4 and goes down to 0
+        assertEquals(4, volumeBuffer.getCurrentX());
+        assertEquals(1, volumeBuffer.getCurrentY());
+
+        for (int x = 4; x >= 0; x--) {
+            assertEquals(x, volumeBuffer.getCurrentX());
+            assertEquals(1, volumeBuffer.getCurrentY());
+            volumeBuffer.recordCurrentPoint(raw, proc, peak, scanConfig, volumeConfig);
+        }
+
+        // Row 2 (Y=2): Snake reverses forward again, X starts at 0
+        assertEquals(0, volumeBuffer.getCurrentX());
+        assertEquals(2, volumeBuffer.getCurrentY());
+    }
+
+    @Test
+    void testSurfaceHeightAndAmplitudeRecording() {
+        byte[] raw = new byte[scanConfig.getNumSamples()];
+        float[] proc = new float[scanConfig.getNumSamples()];
+        // Simulate an echo at sample index 250 (depth ~ 37 mm)
+        int echoSample = 250;
+        proc[echoSample] = 220.0f;
+        PeakEcho peak = PeakEcho.of(scanConfig.getDepthForSample(echoSample), 220.0f, echoSample);
+
+        volumeBuffer.recordCurrentPoint(raw, proc, peak, scanConfig, volumeConfig);
+
+        assertTrue(volumeBuffer.isMeasured(0, 0));
+        assertEquals(scanConfig.getDepthForSample(echoSample), volumeBuffer.getHeight(0, 0), 1e-4);
+        assertEquals(220.0f, volumeBuffer.getAmplitude(0, 0), 1e-4);
+    }
+
+    @Test
+    void testCScanDepthGateMIP() {
+        byte[] raw = new byte[scanConfig.getNumSamples()];
+        float[] proc = new float[scanConfig.getNumSamples()];
+
+        // Echo at sample index 150 (~22.2 mm), which is inside the gate [10mm, 50mm]
+        int inGateSample = 150;
+        proc[inGateSample] = 190.0f;
+
+        // Echo outside the gate at sample index 800 (~118 mm)
+        proc[800] = 255.0f;
+
+        PeakEcho peak = PeakEcho.of(scanConfig.getDepthForSample(inGateSample), 190.0f, inGateSample);
+        volumeBuffer.recordCurrentPoint(raw, proc, peak, scanConfig, volumeConfig);
+
+        // C-Scan MIP must capture the maximum within the depth gate (190.0), ignoring the outside echo (255.0)
+        assertEquals(190.0f, volumeBuffer.getCScan(0, 0), 1e-4);
+    }
+
+    @Test
+    void testClearVolume() {
+        byte[] raw = new byte[scanConfig.getNumSamples()];
+        float[] proc = new float[scanConfig.getNumSamples()];
+        PeakEcho peak = PeakEcho.of(30.0, 100.0f, 100);
+
+        volumeBuffer.recordCurrentPoint(raw, proc, peak, scanConfig, volumeConfig);
+        assertTrue(volumeBuffer.isMeasured(0, 0));
+
+        volumeBuffer.clear(volumeConfig);
+        assertFalse(volumeBuffer.isMeasured(0, 0));
+        assertEquals((float) volumeConfig.getGateMaxDepthMm(), volumeBuffer.getHeight(0, 0));
+        assertEquals(0, volumeBuffer.getCurrentX());
+        assertEquals(0, volumeBuffer.getCurrentY());
+    }
+}
