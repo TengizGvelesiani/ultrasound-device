@@ -1,5 +1,6 @@
 package com.ultrasound.bscan.io;
 
+import com.ultrasound.bscan.model.LineScanConfig;
 import com.ultrasound.bscan.model.ScanConfig;
 
 import java.util.Random;
@@ -25,7 +26,15 @@ public final class SimulatedDataAcquisitionSource implements DataAcquisitionSour
     // Chamber Scan Simulation State
     private volatile boolean simulatingChamberScan = false;
     private volatile double chamberScanDirX = 1.0;
-    private volatile double chamberDeltaYNorm = 0.05;
+    private volatile double chamberDeltaXNorm = 0.02; // step per A-scan point across X
+    private volatile double chamberDeltaYNorm = 0.05; // step per line across Y
+
+    // 2D Line Scan Simulation State
+    private volatile boolean simulatingLineScan = false;
+    private volatile LineScanConfig.ScanAxis lineScanAxis = LineScanConfig.ScanAxis.X;
+    private volatile double lineScanDeltaNorm = 0.02;
+    private volatile double lineScanTargetNorm = 1.0;
+    private volatile boolean lineScanFirstFrame = true;
 
     public SimulatedDataAcquisitionSource(ScanConfig config) {
         this(config, 100); // 100 Hz PRF default
@@ -40,6 +49,30 @@ public final class SimulatedDataAcquisitionSource implements DataAcquisitionSour
         this.externalStageControl = true;
         this.currentStageXNorm = normX;
         this.currentStageYNorm = normY;
+    }
+
+    public void startLineScan(LineScanConfig.ScanAxis axis, double distanceMm, boolean positive, double speedMmPerSec) {
+        this.externalStageControl = false;
+        this.simulatingChamberScan = false;
+        this.lineScanAxis = axis;
+        this.lineScanFirstFrame = true;
+
+        double spanMm = axis == LineScanConfig.ScanAxis.X ? 10.0 : 40.0;
+        double normSpan = Math.clamp(distanceMm / spanMm * 2.0, 0.2, 2.0);
+
+        if (axis == LineScanConfig.ScanAxis.X) {
+            this.currentStageYNorm = 0.0;
+            this.currentStageXNorm = positive ? -normSpan / 2.0 : normSpan / 2.0;
+            this.lineScanTargetNorm = positive ? normSpan / 2.0 : -normSpan / 2.0;
+        } else {
+            this.currentStageXNorm = 0.0;
+            this.currentStageYNorm = positive ? -normSpan / 2.0 : normSpan / 2.0;
+            this.lineScanTargetNorm = positive ? normSpan / 2.0 : -normSpan / 2.0;
+        }
+
+        double mmPerFrame = speedMmPerSec / (double) prfHz;
+        this.lineScanDeltaNorm = (mmPerFrame / spanMm * 2.0) * (positive ? 1.0 : -1.0);
+        this.simulatingLineScan = true;
     }
 
     public void setAutonomousSweep(boolean autonomous) {
@@ -73,9 +106,42 @@ public final class SimulatedDataAcquisitionSource implements DataAcquisitionSour
 
                 double probeX;
                 double probeY;
+                byte statusByte = 0x00;
 
-                if (simulatingChamberScan) {
-                    currentStageXNorm += 0.02 * chamberScanDirX;
+                if (simulatingLineScan) {
+                    statusByte |= (byte) 0x80; // isHardwareScanning
+                    if (lineScanFirstFrame) {
+                        statusByte |= (byte) 0x20; // isLineStart
+                        lineScanFirstFrame = false;
+                    }
+                    if (lineScanAxis == LineScanConfig.ScanAxis.X) {
+                        currentStageXNorm += lineScanDeltaNorm;
+                        boolean reached = (lineScanDeltaNorm > 0 && currentStageXNorm >= lineScanTargetNorm)
+                                || (lineScanDeltaNorm < 0 && currentStageXNorm <= lineScanTargetNorm);
+                        if (reached) {
+                            currentStageXNorm = lineScanTargetNorm;
+                            simulatingLineScan = false;
+                            statusByte |= (byte) 0x10; // isLineEnd
+                            statusByte |= (byte) 0x40; // isScanComplete
+                        }
+                        if (lineScanDeltaNorm > 0) {
+                            statusByte |= (byte) 0x08; // dirXPositive
+                        }
+                    } else {
+                        currentStageYNorm += lineScanDeltaNorm;
+                        boolean reached = (lineScanDeltaNorm > 0 && currentStageYNorm >= lineScanTargetNorm)
+                                || (lineScanDeltaNorm < 0 && currentStageYNorm <= lineScanTargetNorm);
+                        if (reached) {
+                            currentStageYNorm = lineScanTargetNorm;
+                            simulatingLineScan = false;
+                            statusByte |= (byte) 0x10; // isLineEnd
+                            statusByte |= (byte) 0x40; // isScanComplete
+                        }
+                    }
+                    probeX = currentStageXNorm;
+                    probeY = currentStageYNorm;
+                } else if (simulatingChamberScan) {
+                    currentStageXNorm += chamberDeltaXNorm * chamberScanDirX;
                     if (currentStageXNorm >= 1.0) {
                         currentStageXNorm = 1.0;
                         chamberScanDirX = -1.0;
@@ -116,58 +182,65 @@ public final class SimulatedDataAcquisitionSource implements DataAcquisitionSour
                     frame[i] = (byte) Math.clamp(current + ring, 0, 255);
                 }
 
-                // 3. Acoustic Specimen Topography
-                // Metal coin specimen resting on top of a flat metal substrate plate (depth 38.0 mm).
-                // Coin diameter ~ 26 mm on 50x50 mm stage -> normalized radius R ~ 0.52.
+                // 3. Acoustic Specimen Topography: Solid Metal Coin at Depth ~13mm
+                // Transducer sweeps across immersion water tank.
+                // Coin is positioned in the center of the scan area (normalized radius R ~ 0.68).
                 double distToCenter = Math.sqrt(probeX * probeX + probeY * probeY);
                 int echoCenterSample;
                 int echoAmplitude;
 
-                if (distToCenter < 0.52) {
-                    // --- Metal Coin Specimen ---
-                    // Relief features measured in mm above the coin body (35.0 mm):
+                if (distToCenter < 0.68) {
+                    // --- Metal Coin Specimen at Depth 13.0 mm-ish ---
                     double reliefMm = 0.0;
                     double angle = Math.atan2(probeY, probeX);
-                    // 5-pointed star emblem in center (radius ~ 0.18)
-                    double starR = 0.13 + 0.05 * Math.cos(5.0 * angle);
 
-                    if (distToCenter < starR) {
-                        reliefMm = 1.0; // Raised star center emblem (depth = 13.0 mm)
-                    } else if (distToCenter > 0.40 && distToCenter < 0.50) {
-                        reliefMm = 0.6; // Raised outer protective rim (depth = 13.4 mm)
-                    } else if (distToCenter >= 0.50) {
-                        // Smooth bevel transition from outer rim (13.4 mm) down to substrate plate (15.2 mm)
-                        double frac = (distToCenter - 0.50) / 0.02; // 0.0 to 1.0
-                        reliefMm = 0.6 * (1.0 - frac) - 1.2 * frac;
+                    if (distToCenter > 0.54 && distToCenter <= 0.66) {
+                        // Raised outer protective rim of coin (depth = 12.7 mm)
+                        reliefMm = 0.30;
+                    } else if (distToCenter > 0.66) {
+                        // Outer beveled edge transition from rim down toward substrate plate
+                        double frac = (distToCenter - 0.66) / 0.02; // 0.0 to 1.0
+                        reliefMm = 0.30 * (1.0 - frac) - 3.0 * frac;
+                    } else if (distToCenter > 0.36 && distToCenter <= 0.42) {
+                        // Raised inner decorative ridge ring (depth = 12.85 mm)
+                        reliefMm = 0.15;
+                    } else if (distToCenter <= 0.30) {
+                        // Embossed coin center medallion / profile emblem (depth = 12.75 mm)
+                        double normR = distToCenter / 0.30;
+                        double dome = Math.cos(normR * Math.PI * 0.5);
+                        double crestTexture = 0.04 * Math.sin(6.0 * angle);
+                        reliefMm = Math.clamp(0.25 * dome + crestTexture, 0.0, 0.30);
                     } else {
-                        reliefMm = 0.0; // Flat field of the coin (depth = 14.0 mm)
+                        // Flat field / table of the metal coin (exact depth = 13.0 mm)
+                        reliefMm = 0.0;
                     }
 
-                    double depthMm = 14.0 - reliefMm;
+                    double depthMm = 13.0 - reliefMm;
                     echoCenterSample = config.getSampleIndexForDepth(depthMm);
-                    echoAmplitude = 245;
+                    echoAmplitude = 250; // Strong specular metal reflection
 
-                    // Strong specular ultrasound echo pulse packet from metal surface
+                    // High-amplitude specular ultrasound echo pulse packet from solid metal
                     for (int di = -8; di <= 8; di++) {
                         int idx = echoCenterSample + di;
                         if (idx >= 0 && idx < numSamples) {
                             double env = Math.exp(-(di * di) / 8.0);
-                            int pulse = (int) (echoAmplitude * env * Math.cos(di * 1.2));
+                            int pulse = (int) (echoAmplitude * env * Math.cos(di * 1.25));
                             int current = frame[idx] & 0xFF;
                             frame[idx] = (byte) Math.clamp(current + Math.max(0, pulse), 0, 255);
                         }
                     }
 
-                    // Total acoustic shadow beneath the metal coin
+                    // Total acoustic shadow beneath solid metal coin:
+                    // Solid metal blocks >95% of acoustic transmission, casting deep shadow
                     int shadowEnd = Math.min(numSamples, echoCenterSample + 400);
                     for (int idx = echoCenterSample + 12; idx < shadowEnd; idx++) {
                         int current = frame[idx] & 0xFF;
-                        frame[idx] = (byte) (current * 0.12);
+                        frame[idx] = (byte) (current * 0.06);
                     }
                 } else {
-                    // --- Flat Metal Substrate / Stage Plate at 38.0 mm ---
-                    echoCenterSample = substratePlateDepthSample;
-                    echoAmplitude = 195;
+                    // --- Flat Tank Bottom / Substrate Plate at 16.0 mm ---
+                    echoCenterSample = config.getSampleIndexForDepth(16.0);
+                    echoAmplitude = 185;
 
                     for (int di = -6; di <= 6; di++) {
                         int idx = echoCenterSample + di;
@@ -183,11 +256,14 @@ public final class SimulatedDataAcquisitionSource implements DataAcquisitionSour
                     int shadowEnd = Math.min(numSamples, echoCenterSample + 400);
                     for (int idx = echoCenterSample + 12; idx < shadowEnd; idx++) {
                         int current = frame[idx] & 0xFF;
-                        frame[idx] = (byte) (current * 0.12);
+                        frame[idx] = (byte) (current * 0.08);
                     }
                 }
 
-                frameConsumer.accept(frame);
+                byte[] payload = new byte[numSamples + 1];
+                payload[0] = statusByte;
+                System.arraycopy(frame, 0, payload, 1, numSamples);
+                frameConsumer.accept(payload);
 
                 long elapsed = System.currentTimeMillis() - start;
                 long sleepTime = Math.max(1, intervalMs - elapsed);
@@ -259,11 +335,10 @@ public final class SimulatedDataAcquisitionSource implements DataAcquisitionSour
                 currentStageXNorm = -1.0;
                 currentStageYNorm = -1.0;
                 chamberScanDirX = 1.0;
-                if (param2 > 0 && param3 > 0) {
-                    chamberDeltaYNorm = Math.max(0.01, 2.0 * ((double) param3 / (double) param2));
-                } else {
-                    chamberDeltaYNorm = 0.05;
-                }
+                int ptsX = (param1 > 0 && axis > 0) ? (int) Math.max(10, param1 / axis) : 100;
+                int ptsY = (param2 > 0 && param3 > 0) ? (int) Math.max(5, param2 / param3) : 40;
+                chamberDeltaXNorm = 2.0 / ptsX;
+                chamberDeltaYNorm = 2.0 / ptsY;
             }
             case FpgaCommandProtocol.CMD_ZERO_POSITION -> {
                 currentStageXNorm = 0.0;

@@ -100,6 +100,7 @@ architecture Behavioral of stepper_controller is
         M_JOG_X,
         M_JOG_Y,
         M_SCAN_SWEEP_X,
+        M_SCAN_SWEEP_Y,
         M_SCAN_STEP_Y,
         M_SCAN_COMPLETE,
         M_HOLD
@@ -161,8 +162,8 @@ begin
 
     -- Subsystem Synchronization
     pos_pulse_trigger <= pos_pulse_trigger_r;
-    scan_mode_active  <= '1' when (motor_mode = M_SCAN_SWEEP_X or motor_mode = M_SCAN_STEP_Y or (motor_mode = M_WAKEUP and next_motion_mode = M_SCAN_SWEEP_X)) else '0';
-    is_scanning       <= '1' when (motor_mode = M_SCAN_SWEEP_X or motor_mode = M_SCAN_STEP_Y or (motor_mode = M_WAKEUP and next_motion_mode = M_SCAN_SWEEP_X)) else '0';
+    scan_mode_active  <= '1' when (motor_mode = M_SCAN_SWEEP_X or motor_mode = M_SCAN_SWEEP_Y or motor_mode = M_SCAN_STEP_Y or (motor_mode = M_WAKEUP and (next_motion_mode = M_SCAN_SWEEP_X or next_motion_mode = M_SCAN_SWEEP_Y))) else '0';
+    is_scanning       <= '1' when (motor_mode = M_SCAN_SWEEP_X or motor_mode = M_SCAN_SWEEP_Y or motor_mode = M_SCAN_STEP_Y or (motor_mode = M_WAKEUP and (next_motion_mode = M_SCAN_SWEEP_X or next_motion_mode = M_SCAN_SWEEP_Y))) else '0';
     scan_status       <= scan_status_r;
     scan_done_hold    <= scan_done_hold_r;
 
@@ -326,6 +327,60 @@ begin
                         end if;
                     end if;
 
+                when M_SCAN_SWEEP_Y =>
+                    motor_enable_r <= '1';
+                    y_dir_r <= scan_y_dir;
+                    if (step_timer_y < cfg_half_period - 1) or (step_phase_y = '1') or (pulse_step_cnt < scan_delta_y_steps - 1) or (acq_busy = '0') then
+                        if step_timer_y >= cfg_half_period - 1 then
+                            step_timer_y <= 0;
+                            if step_phase_y = '0' then
+                                step_phase_y <= '1';
+                                y_step_r     <= '1'; -- Rising edge: Y microstep begins
+
+                                -- Position-Triggered Pulse: fire every N microsteps along Y
+                                if pulse_step_cnt >= scan_delta_y_steps - 1 then
+                                    pulse_step_cnt      <= (others => '0');
+                                    pos_pulse_trigger_r <= '1'; -- 1-cycle pulse strobe to pulser_fsm
+
+                                    scan_status_r(7) <= '1';
+                                    scan_status_r(3) <= '0';
+                                    scan_status_r(2 downto 0) <= std_logic_vector(line_counter(2 downto 0));
+
+                                    if line_has_pulsed = '0' then
+                                        scan_status_r(5) <= '1'; -- LINE_START
+                                        line_has_pulsed  <= '1';
+                                    else
+                                        scan_status_r(5) <= '0';
+                                    end if;
+
+                                    if (scan_curr_y_steps + resize(scan_delta_y_steps, 32)) >= scan_total_y_steps then
+                                        scan_status_r(4) <= '1'; -- LINE_END
+                                        scan_status_r(6) <= '1'; -- SCAN_COMPLETE
+                                    else
+                                        scan_status_r(4) <= '0';
+                                        scan_status_r(6) <= '0';
+                                    end if;
+                                else
+                                    pulse_step_cnt <= pulse_step_cnt + 1;
+                                end if;
+
+                                if scan_curr_y_steps >= scan_total_y_steps - 1 then
+                                    scan_curr_y_steps <= (others => '0');
+                                    pulse_step_cnt    <= (others => '0');
+                                    line_has_pulsed   <= '0';
+                                    motor_mode        <= M_SCAN_COMPLETE;
+                                else
+                                    scan_curr_y_steps <= scan_curr_y_steps + 1;
+                                end if;
+                            else
+                                step_phase_y <= '0';
+                                y_step_r     <= '0'; -- Falling edge: step pin returns to 0
+                            end if;
+                        else
+                            step_timer_y <= step_timer_y + 1;
+                        end if;
+                    end if;
+
                 when M_SCAN_STEP_Y =>
                     motor_enable_r <= '1';
                     y_dir_r        <= scan_y_dir;
@@ -478,6 +533,61 @@ begin
                     when x"04" => -- CMD_ZERO_POSITION
                         scan_curr_x_steps <= (others => '0');
                         scan_curr_y_steps <= (others => '0');
+
+                    when x"05" => -- CMD_LINE_SCAN: Single-axis 2D line scan with hardware position triggers
+                        line_counter     <= (others => '0');
+                        line_has_pulsed  <= '0';
+                        pulse_step_cnt   <= (others => '0');
+                        step_phase_x     <= '0';
+                        step_phase_y     <= '0';
+                        scan_done_hold_r <= '0';
+                        scan_status_r    <= x"00";
+
+                        if param2 > 500 then
+                            cfg_half_period <= to_integer(param2);
+                        end if;
+
+                        if cmd_axis = x"01" then -- AXIS_X Line Scan
+                            scan_total_x_steps <= param1;
+                            scan_total_y_steps <= (others => '0');
+                            if param3 > 0 then
+                                scan_delta_x_steps <= resize(param3, 16);
+                            else
+                                scan_delta_x_steps <= to_unsigned(40, 16);
+                            end if;
+                            scan_curr_x_steps  <= (others => '0');
+                            scan_x_dir         <= cmd_dir(0);
+                            x_dir_r            <= cmd_dir(0);
+                            step_timer_x       <= 0;
+                            if motor_enable_r = '1' and motor_mode /= M_IDLE then
+                                motor_mode <= M_SCAN_SWEEP_X;
+                            else
+                                motor_enable_r   <= '1';
+                                wake_timer       <= WAKEUP_DELAY_CYCLES;
+                                next_motion_mode <= M_SCAN_SWEEP_X;
+                                motor_mode       <= M_WAKEUP;
+                            end if;
+                        elsif cmd_axis = x"02" then -- AXIS_Y Line Scan
+                            scan_total_y_steps <= param1;
+                            scan_total_x_steps <= (others => '0');
+                            if param3 > 0 then
+                                scan_delta_y_steps <= resize(param3, 16);
+                            else
+                                scan_delta_y_steps <= to_unsigned(40, 16);
+                            end if;
+                            scan_curr_y_steps  <= (others => '0');
+                            scan_y_dir         <= cmd_dir(0);
+                            y_dir_r            <= cmd_dir(0);
+                            step_timer_y       <= 0;
+                            if motor_enable_r = '1' and motor_mode /= M_IDLE then
+                                motor_mode <= M_SCAN_SWEEP_Y;
+                            else
+                                motor_enable_r   <= '1';
+                                wake_timer       <= WAKEUP_DELAY_CYCLES;
+                                next_motion_mode <= M_SCAN_SWEEP_Y;
+                                motor_mode       <= M_WAKEUP;
+                            end if;
+                        end if;
 
                     when others =>
                         null;

@@ -9,6 +9,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * High-performance dual-buffer container for Sweep Pass and Waterfall 2D data.
  * Internally organizes data in column-major order (column * numSamples + sampleIndex)
  * to allow nanosecond block copies of incoming 1024-byte A-scan lines.
+ * <p>
+ * Supports spatially calibrated single-axis 2D Line Scans (X or Y) with exact
+ * column allocation matching physical distance and step size.
  */
 public final class ScanBuffer {
 
@@ -24,6 +27,13 @@ public final class ScanBuffer {
     private int sweepIndex; // Number of columns recorded so far
     private byte[] rawSweepBuffer;
     private float[] processedSweepBuffer;
+
+    // Spatially Calibrated 2D Line Scan Metadata
+    private volatile boolean lineScanActive = false;
+    private volatile String lineScanAxisLabel = "X";
+    private volatile double lineScanLengthMm = 0.0;
+    private volatile double lineScanStartMm = 0.0;
+    private volatile double lineScanStepMm = 0.10;
 
     // Waterfall Data
     private final int waterfallWidth;
@@ -49,12 +59,74 @@ public final class ScanBuffer {
     }
 
     // -------------------------------------------------------------
+    // LINE SCAN INITIALIZATION & SPATIAL CALIBRATION
+    // -------------------------------------------------------------
+
+    /**
+     * Prepares and sizes the sweep buffer for a motorized single-axis 2D Line Scan.
+     * Allocates exact column capacity to ensure the cross-section spans 100% of the display canvas.
+     *
+     * @param totalLines  exact number of A-scan lines across the path
+     * @param lengthMm    physical length of the line in mm
+     * @param axisLabel   axis label (e.g. "X" or "Y")
+     * @param startMm     starting stage coordinate in mm
+     * @param stepDeltaMm step spacing between A-scans in mm
+     */
+    public void prepareLineScan(int totalLines, double lengthMm, String axisLabel, double startMm, double stepDeltaMm) {
+        rwLock.writeLock().lock();
+        try {
+            int targetCols = Math.max(1, totalLines);
+            this.sweepCapacity = targetCols;
+            this.sweepIndex = 0;
+            this.rawSweepBuffer = new byte[targetCols * numSamples];
+            this.processedSweepBuffer = new float[targetCols * numSamples];
+
+            this.lineScanActive = true;
+            this.lineScanAxisLabel = axisLabel != null ? axisLabel : "X";
+            this.lineScanLengthMm = lengthMm;
+            this.lineScanStartMm = startMm;
+            this.lineScanStepMm = Math.max(0.001, stepDeltaMm);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    public boolean isLineScanActive() {
+        return lineScanActive;
+    }
+
+    public void setLineScanActive(boolean active) {
+        this.lineScanActive = active;
+    }
+
+    public String getLineScanAxisLabel() {
+        return lineScanAxisLabel;
+    }
+
+    public double getLineScanLengthMm() {
+        return lineScanLengthMm;
+    }
+
+    public double getLineScanStartMm() {
+        return lineScanStartMm;
+    }
+
+    public double getLineScanStepMm() {
+        return lineScanStepMm;
+    }
+
+    // -------------------------------------------------------------
     // SWEEP OPERATIONS
     // -------------------------------------------------------------
 
     public void addSweepLine(byte[] raw, float[] processed) {
         rwLock.writeLock().lock();
         try {
+            if (lineScanActive && sweepIndex >= sweepCapacity) {
+                // In line scan mode, cap at allocated sweep capacity to maintain strict spatial alignment
+                return;
+            }
+
             if (sweepIndex >= sweepCapacity) {
                 growSweepCapacity(sweepCapacity + SWEEP_GROWTH_INCREMENT);
             }

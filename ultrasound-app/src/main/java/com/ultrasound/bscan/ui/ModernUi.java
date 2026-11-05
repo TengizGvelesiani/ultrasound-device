@@ -80,9 +80,9 @@ public final class ModernUi {
             setBorderPainted(false);
             setOpaque(false);
             setForeground(Color.WHITE);
-            setFont(new Font("Segoe UI", Font.BOLD, 11));
+            setFont(new Font("Segoe UI", Font.BOLD, 9));
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            setMargin(new Insets(4, 10, 4, 10));
+            setMargin(new Insets(2, 4, 2, 4));
 
             addMouseListener(new MouseAdapter() {
                 @Override
@@ -177,8 +177,8 @@ public final class ModernUi {
             setBorderPainted(false);
             setOpaque(false);
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            setPreferredSize(new Dimension(0, 52));
-            setMaximumSize(new Dimension(Integer.MAX_VALUE, 52));
+            setPreferredSize(new Dimension(0, 46));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
 
             addMouseListener(new MouseAdapter() {
                 @Override
@@ -282,32 +282,29 @@ public final class ModernUi {
             int textLeft = circleX + circleD + 12;
             int avail = w - textLeft - 10;
 
-            String title = "START FULL CHAMBER SCAN";
-            Font titleFont = new Font("Segoe UI", Font.BOLD, 12);
+            String title = "START CHAMBER SCAN";
+            Font titleFont = new Font("Segoe UI", Font.BOLD, 11);
             g2.setFont(titleFont);
             if (g2.getFontMetrics().stringWidth(title) > avail) {
-                titleFont = new Font("Segoe UI", Font.BOLD, 11);
+                titleFont = new Font("Segoe UI", Font.BOLD, 10);
                 g2.setFont(titleFont);
             }
             if (g2.getFontMetrics().stringWidth(title) > avail) {
-                title = "START FULL SCAN";
-            }
-            if (g2.getFontMetrics().stringWidth(title) > avail) {
-                title = "RUN SCAN";
+                title = "START SCAN";
             }
 
             String subtitle = "Autonomous Serpentine XY";
-            Font subFont = new Font("Segoe UI", Font.PLAIN, 10);
+            Font subFont = new Font("Segoe UI", Font.PLAIN, 9);
             g2.setFont(subFont);
             if (g2.getFontMetrics().stringWidth(subtitle) > avail) {
-                subtitle = "Autonomous XY Scan";
+                subtitle = "Serpentine XY Grid";
             }
             if (g2.getFontMetrics().stringWidth(subtitle) > avail) {
-                subtitle = "Automated Grid";
+                subtitle = "XY Raster Scan";
             }
 
             int titleY = h / 2 - 2;
-            int subY = h / 2 + 13;
+            int subY = h / 2 + 12;
             if (isPressed) {
                 titleY += 1;
                 subY += 1;

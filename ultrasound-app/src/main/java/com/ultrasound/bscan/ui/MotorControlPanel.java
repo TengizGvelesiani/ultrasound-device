@@ -1,7 +1,9 @@
 package com.ultrasound.bscan.ui;
 
 import com.ultrasound.bscan.controller.MotorControllerService;
+import com.ultrasound.bscan.model.LineScanConfig;
 import com.ultrasound.bscan.model.MotorSettings;
+import javax.swing.JCheckBox;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -30,6 +32,10 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Rectangle;
+import java.awt.BasicStroke;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 
 /**
  * Dedicated sidebar control panel for motorized ultrasound stage control and full chamber scans.
@@ -49,6 +55,13 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
     private final MotorControllerService motorService;
     private final MotorSettings settings;
 
+    // Mode-Specific Card Containers & Dynamic Layout Gaps
+    private JPanel cardLineScan;
+    private Component gapLine;
+    private JPanel cardChamberScan;
+    private Component gapChamber;
+    private JPanel cardFeedback;
+
     // Digital Coordinate Readouts
     private final JLabel lblPositionX = new JLabel("+0.00 mm");
     private final JLabel lblPositionY = new JLabel("+0.00 mm");
@@ -63,18 +76,19 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
     private final JSlider sldSpeed = new JSlider(1, 30, 10);
     private final JLabel lblSpeedValue = new JLabel("10.0 mm/s (4000 Hz)");
 
-    private final JButton btnJogYPlus = new ModernUi.RoundedButton("▲  Y+ (Bottom In Sync)", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
-    private final JButton btnJogYMinus = new ModernUi.RoundedButton("▼  Y- (Bottom In Sync)", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
-    private final JButton btnJogXMinus = new ModernUi.RoundedButton("<  X-", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
-    private final JButton btnJogXPlus = new ModernUi.RoundedButton("X+  >", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
-    private final JButton btnHalt = new ModernUi.RoundedButton("■  HALT", ModernUi.COLOR_RED_DARK, ModernUi.COLOR_RED, 6);
+    private final JButton btnJogYPlus = new ModernUi.RoundedButton("▲ Y+ (Sync)", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
+    private final JButton btnJogYMinus = new ModernUi.RoundedButton("▼ Y- (Sync)", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
+    private final JButton btnJogXMinus = new ModernUi.RoundedButton("◀ X-", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
+    private final JButton btnJogXPlus = new ModernUi.RoundedButton("X+ ▶", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
+    private final JButton btnHalt = new ModernUi.RoundedButton("■ HALT", ModernUi.COLOR_RED_DARK, ModernUi.COLOR_RED, 6);
 
     // Chamber Configuration Spinners (Styled dark inputs)
-    private final JSpinner spnChamberX = new JSpinner(new SpinnerNumberModel(100.0, 5.0, 1000.0, 5.0));
-    private final JSpinner spnChamberY = new JSpinner(new SpinnerNumberModel(100.0, 5.0, 1000.0, 5.0));
+    private final JSpinner spnChamberX = new JSpinner(new SpinnerNumberModel(10.0, 1.0, 1000.0, 1.0));
+    private final JSpinner spnChamberY = new JSpinner(new SpinnerNumberModel(40.0, 1.0, 1000.0, 1.0));
     private final JSpinner spnLineStepY = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 20.0, 0.5));
     private final JSpinner spnLineStepX = new JSpinner(new SpinnerNumberModel(0.10, 0.05, 5.0, 0.05));
     private final JSpinner spnStepsPerMm = new JSpinner(new SpinnerNumberModel(400.0, 10.0, 5000.0, 10.0));
+    private final JSpinner spnPreviewSpeed = new JSpinner(new SpinnerNumberModel(25.0, 1.0, 100.0, 5.0));
 
     // Chamber Scan Direction Selectors
     private final JComboBox<String> cmbStartXDir = new JComboBox<>(new String[]{
@@ -84,9 +98,23 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             "+Y (Forward / Pos)", "-Y (Backward / Neg)"
     });
 
-    // High-End Hero Chamber Scan Trigger Button & Progress Bar
+    // 2D Line Scan Controls
+    private final JComboBox<LineScanConfig.ScanAxis> cmbLineAxis = new JComboBox<>(LineScanConfig.ScanAxis.values());
+    private final JSpinner spnLineDistance = new JSpinner(new SpinnerNumberModel(10.0, 0.5, 1000.0, 1.0));
+    private final JSpinner spnLineStep = new JSpinner(new SpinnerNumberModel(0.10, 0.01, 5.0, 0.05));
+    private final JComboBox<String> cmbLineDir = new JComboBox<>(new String[]{
+            "+ Positive (Right / Fwd)", "- Negative (Left / Back)"
+    });
+    private final JCheckBox chkLineAutoReturn = new JCheckBox("Auto-return to start position", true);
+    private final JButton btnTriggerLineScan = new ModernUi.RoundedButton("▶ START 2D LINE SCAN", new Color(0x1B, 0x4D, 0x6E), ModernUi.COLOR_CYAN, 6);
+
+    // Chamber Area Graphic Preview Canvas
+    private final ChamberAreaPreviewCanvas areaCanvas = new ChamberAreaPreviewCanvas();
+
+    // High-End Hero Chamber Scan Trigger Button, Area Preview Button & Progress Bar
+    private final JButton btnPreviewScanArea = new ModernUi.RoundedButton("□ PREVIEW AREA", new Color(0x1B, 0x3A, 0x4F), ACCENT_CYAN, 6);
     private final ModernUi.HeroScanButton btnTriggerChamberScan = new ModernUi.HeroScanButton();
-    private final JButton btnAbortScan = new ModernUi.RoundedButton("■  ABORT SCAN", ModernUi.COLOR_RED_DARK, ModernUi.COLOR_RED, 6);
+    private final JButton btnAbortScan = new ModernUi.RoundedButton("■ ABORT", ModernUi.COLOR_RED_DARK, ModernUi.COLOR_RED, 6);
     private final ModernUi.ModernProgressBar prgScanProgress = new ModernUi.ModernProgressBar(new Color(0x00, 0xC8, 0x53), new Color(0x00, 0xE5, 0xFF));
     private final JLabel lblScanStatus = new JLabel("● Gantry ready");
 
@@ -152,8 +180,21 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         contentPanel.add(buildJogControlCard());
         contentPanel.add(createVerticalGap(6));
 
-        // 4. Chamber Settings & Hero Scan Trigger Card
-        contentPanel.add(buildChamberScanCard());
+        // 4. 2D Line Scan Setup Card (Mode-isolated: visible exclusively in 2D ViewMode)
+        cardLineScan = buildLineScanCard();
+        gapLine = createVerticalGap(6);
+        contentPanel.add(cardLineScan);
+        contentPanel.add(gapLine);
+
+        // 5. Chamber Settings & Hero Scan Trigger Card (Mode-isolated: visible exclusively in 3D ViewMode)
+        cardChamberScan = buildChamberScanCard();
+        gapChamber = createVerticalGap(6);
+        contentPanel.add(cardChamberScan);
+        contentPanel.add(gapChamber);
+
+        // 6. Scan Execution Monitor & Feedback Card (Common status readout)
+        cardFeedback = buildFeedbackCard();
+        contentPanel.add(cardFeedback);
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
@@ -171,10 +212,17 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         ModernUi.styleSpinner(spnLineStepY);
         ModernUi.styleSpinner(spnLineStepX);
         ModernUi.styleSpinner(spnStepsPerMm);
+        ModernUi.styleSpinner(spnPreviewSpeed);
+        btnPreviewScanArea.setToolTipText("Moves the stepper motors quickly along the perimeter rectangle of the scan area and returns to original position.");
         ModernUi.styleComboBox(cmbJogStep);
+        ModernUi.styleComboBox(cmbLineAxis);
+        ModernUi.styleComboBox(cmbLineDir);
+        ModernUi.styleSpinner(spnLineDistance);
+        ModernUi.styleSpinner(spnLineStep);
 
         initEventHandlers();
         motorService.addListener(this);
+        updateViewMode(com.ultrasound.bscan.model.ViewMode.MODE_2D);
     }
 
     private JPanel buildHeaderSection() {
@@ -227,8 +275,8 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         title.setFont(new Font("Segoe UI", Font.BOLD, 11));
         title.setForeground(ACCENT_CYAN);
 
-        btnZeroOrigin.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        btnZeroOrigin.setPreferredSize(new Dimension(84, 22));
+        btnZeroOrigin.setFont(new Font("Segoe UI", Font.BOLD, 9));
+        btnZeroOrigin.setPreferredSize(new Dimension(76, 22));
 
         headerRow.add(title, BorderLayout.WEST);
         headerRow.add(btnZeroOrigin, BorderLayout.EAST);
@@ -405,6 +453,92 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         return card;
     }
 
+    private JPanel buildLineScanCard() {
+        JPanel card = createCardPanel("2D LINE SCAN (SINGLE-AXIS)");
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+
+        chkLineAutoReturn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        chkLineAutoReturn.setForeground(new Color(0xD0, 0xD4, 0xE0));
+        chkLineAutoReturn.setOpaque(false);
+        chkLineAutoReturn.setFocusable(false);
+
+        JPanel grid = new JPanel(new GridLayout(4, 2, 8, 4)) {
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+            }
+        };
+        grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+        grid.setBackground(CARD_BG);
+
+        grid.add(createLabel("Scan Axis:"));
+        grid.add(cmbLineAxis);
+
+        grid.add(createLabel("Distance (mm):"));
+        grid.add(spnLineDistance);
+
+        grid.add(createLabel("Step \u0394 (mm):"));
+        grid.add(spnLineStep);
+
+        grid.add(createLabel("Direction:"));
+        grid.add(cmbLineDir);
+
+        card.add(grid);
+        card.add(createVerticalGap(6));
+
+        chkLineAutoReturn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.add(chkLineAutoReturn);
+        card.add(createVerticalGap(6));
+
+        btnTriggerLineScan.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnTriggerLineScan.setPreferredSize(new Dimension(0, 28));
+        btnTriggerLineScan.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        btnTriggerLineScan.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        card.add(btnTriggerLineScan);
+
+        return card;
+    }
+
+    public void syncLineScanConfig(LineScanConfig lc) {
+        if (lc == null) return;
+        lc.setAxis((LineScanConfig.ScanAxis) cmbLineAxis.getSelectedItem());
+        lc.setDistanceMm(((Number) spnLineDistance.getValue()).doubleValue());
+        lc.setStepDeltaMm(((Number) spnLineStep.getValue()).doubleValue());
+        lc.setPositiveDir(cmbLineDir.getSelectedIndex() == 0);
+        lc.setAutoReturn(chkLineAutoReturn.isSelected());
+        lc.setSpeedMmPerSec(sldSpeed.getValue());
+    }
+
+    public LineScanConfig getLineScanConfig() {
+        LineScanConfig lc = new LineScanConfig();
+        syncLineScanConfig(lc);
+        return lc;
+    }
+
+    public void triggerLineScan() {
+        LineScanConfig lc = getLineScanConfig();
+        motorService.triggerLineScan(lc);
+    }
+
+    public void updateViewMode(com.ultrasound.bscan.model.ViewMode mode) {
+        boolean is2D = mode == com.ultrasound.bscan.model.ViewMode.MODE_2D;
+        if (cardLineScan != null) {
+            cardLineScan.setVisible(is2D);
+        }
+        if (gapLine != null) {
+            gapLine.setVisible(is2D);
+        }
+        if (cardChamberScan != null) {
+            cardChamberScan.setVisible(!is2D);
+        }
+        if (gapChamber != null) {
+            gapChamber.setVisible(!is2D);
+        }
+        areaCanvas.repaint();
+        revalidate();
+        repaint();
+    }
+
     private JPanel buildChamberScanCard() {
         JPanel card = createCardPanel("CHAMBER SCAN SETUP");
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
@@ -415,7 +549,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         cmbStartXDir.setPreferredSize(new Dimension(110, 24));
         cmbAdvanceYDir.setPreferredSize(new Dimension(110, 24));
 
-        JPanel grid = new JPanel(new GridLayout(7, 2, 8, 4)) {
+        JPanel grid = new JPanel(new GridLayout(8, 2, 8, 4)) {
             @Override
             public Dimension getMaximumSize() {
                 return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
@@ -445,29 +579,52 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         grid.add(createLabel("Advance Dir Y:"));
         grid.add(cmbAdvanceYDir);
 
+        grid.add(createLabel("Preview Spd (mm/s):"));
+        grid.add(spnPreviewSpeed);
+
         card.add(grid);
-        card.add(createVerticalGap(10));
+        card.add(createVerticalGap(8));
+
+        // FAST PREVIEW SCAN RECTANGLE BUTTON
+        btnPreviewScanArea.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnPreviewScanArea.setPreferredSize(new Dimension(0, 28));
+        btnPreviewScanArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        btnPreviewScanArea.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        card.add(btnPreviewScanArea);
+        card.add(createVerticalGap(6));
 
         // PROMINENT HERO CHAMBER SCAN TRIGGER BUTTON
         btnTriggerChamberScan.setAlignmentX(Component.LEFT_ALIGNMENT);
-        btnTriggerChamberScan.setMaximumSize(new Dimension(Integer.MAX_VALUE, 52));
+        btnTriggerChamberScan.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
+        btnTriggerChamberScan.setPreferredSize(new Dimension(0, 46));
         card.add(btnTriggerChamberScan);
+
+        return card;
+    }
+
+    private JPanel buildFeedbackCard() {
+        JPanel card = createCardPanel("SCAN EXECUTION & STATUS");
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+
+        // Graphic footprint canvas
+        card.add(areaCanvas);
         card.add(createVerticalGap(6));
 
         // Abort Button
         btnAbortScan.setAlignmentX(Component.LEFT_ALIGNMENT);
-        btnAbortScan.setPreferredSize(new Dimension(0, 28));
-        btnAbortScan.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        btnAbortScan.setPreferredSize(new Dimension(0, 26));
+        btnAbortScan.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+        btnAbortScan.setFont(new Font("Segoe UI", Font.BOLD, 9));
         btnAbortScan.setVisible(false);
         card.add(btnAbortScan);
         card.add(createVerticalGap(4));
 
         // Sleek Gradient Progress Bar
         prgScanProgress.setAlignmentX(Component.LEFT_ALIGNMENT);
-        prgScanProgress.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
+        prgScanProgress.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20));
         prgScanProgress.setString("Ready");
         card.add(prgScanProgress);
-        card.add(createVerticalGap(6));
+        card.add(createVerticalGap(4));
 
         lblScanStatus.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         lblScanStatus.setForeground(TEXT_MUTED);
@@ -506,10 +663,33 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             motorService.updateSpeed();
         });
 
+        // 2D Line Scan Listeners
+        cmbLineAxis.addActionListener(e -> {
+            LineScanConfig.ScanAxis a = (LineScanConfig.ScanAxis) cmbLineAxis.getSelectedItem();
+            if (a == LineScanConfig.ScanAxis.X) {
+                spnLineDistance.setValue(settings.getChamberWidthX());
+            } else {
+                spnLineDistance.setValue(settings.getChamberLengthY());
+            }
+            areaCanvas.repaint();
+        });
+        spnLineDistance.addChangeListener(e -> areaCanvas.repaint());
+        cmbLineDir.addActionListener(e -> areaCanvas.repaint());
+        btnTriggerLineScan.addActionListener(e -> triggerLineScan());
+
         // Chamber Configuration Listeners
-        spnChamberX.addChangeListener(e -> settings.setChamberWidthX(((Number) spnChamberX.getValue()).doubleValue()));
-        spnChamberY.addChangeListener(e -> settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue()));
-        spnLineStepY.addChangeListener(e -> settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue()));
+        spnChamberX.addChangeListener(e -> {
+            settings.setChamberWidthX(((Number) spnChamberX.getValue()).doubleValue());
+            areaCanvas.repaint();
+        });
+        spnChamberY.addChangeListener(e -> {
+            settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue());
+            areaCanvas.repaint();
+        });
+        spnLineStepY.addChangeListener(e -> {
+            settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue());
+            areaCanvas.repaint();
+        });
         spnLineStepX.addChangeListener(e -> settings.setStepDeltaXMm(((Number) spnLineStepX.getValue()).doubleValue()));
         spnStepsPerMm.addChangeListener(e -> {
             double val = ((Number) spnStepsPerMm.getValue()).doubleValue();
@@ -518,11 +698,36 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             long stepHz = Math.round(settings.getSpeedMmPerSec() * val);
             lblSpeedValue.setText(String.format("%.1f mm/s (%d Hz)", settings.getSpeedMmPerSec(), stepHz));
             motorService.updateSpeed();
+            areaCanvas.repaint();
+        });
+        spnPreviewSpeed.addChangeListener(e -> {
+            settings.setPreviewSpeedMmPerSec(((Number) spnPreviewSpeed.getValue()).doubleValue());
         });
 
         // Direction Selectors Listeners
-        cmbStartXDir.addActionListener(e -> settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0));
-        cmbAdvanceYDir.addActionListener(e -> settings.setAdvancePositiveY(cmbAdvanceYDir.getSelectedIndex() == 0));
+        cmbStartXDir.addActionListener(e -> {
+            settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0);
+            areaCanvas.repaint();
+        });
+        cmbAdvanceYDir.addActionListener(e -> {
+            settings.setAdvancePositiveY(cmbAdvanceYDir.getSelectedIndex() == 0);
+            areaCanvas.repaint();
+        });
+
+        // PREVIEW SCAN AREA ACTION
+        btnPreviewScanArea.addActionListener(e -> {
+            settings.setChamberWidthX(((Number) spnChamberX.getValue()).doubleValue());
+            settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue());
+            settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue());
+            settings.setStepDeltaXMm(((Number) spnLineStepX.getValue()).doubleValue());
+            settings.setStepsPerMmX(((Number) spnStepsPerMm.getValue()).doubleValue());
+            settings.setStepsPerMmY(((Number) spnStepsPerMm.getValue()).doubleValue());
+            settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0);
+            settings.setAdvancePositiveY(cmbAdvanceYDir.getSelectedIndex() == 0);
+            settings.setPreviewSpeedMmPerSec(((Number) spnPreviewSpeed.getValue()).doubleValue());
+
+            motorService.previewScanArea();
+        });
 
         // ONE-CLICK CHAMBER SCAN TRIGGER
         btnTriggerChamberScan.addActionListener(e -> {
@@ -558,6 +763,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             lblPositionY.setText(String.format("%+7.2f mm", yMm));
             lblStepsX.setText(String.format("%,d steps", xSteps));
             lblStepsY.setText(String.format("%,d steps", ySteps));
+            areaCanvas.repaint();
         });
     }
 
@@ -573,7 +779,9 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
     @Override
     public void onScanStateChanged(boolean isScanning, String message) {
         SwingUtilities.invokeLater(() -> {
+            btnTriggerLineScan.setEnabled(!isScanning);
             btnTriggerChamberScan.setEnabled(!isScanning);
+            btnPreviewScanArea.setEnabled(!isScanning);
             btnAbortScan.setVisible(isScanning);
             lblScanStatus.setText(isScanning ? "● " + message : "● " + (message != null ? message : "Gantry ready"));
             lblScanStatus.setForeground(isScanning ? ACCENT_CYAN : (message != null && message.contains("Completed") ? ACCENT_GREEN : TEXT_MUTED));
@@ -630,5 +838,212 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         label.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         label.setForeground(TEXT_MUTED);
         return label;
+    }
+
+    /**
+     * Compact graphical canvas visualizing the chamber scan area footprint,
+     * configured sweep directions, and live stepper motor position.
+     */
+    private final class ChamberAreaPreviewCanvas extends JPanel {
+        public ChamberAreaPreviewCanvas() {
+            setOpaque(false);
+            setPreferredSize(new Dimension(0, 95));
+            setMinimumSize(new Dimension(150, 80));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, 105));
+            setAlignmentX(Component.LEFT_ALIGNMENT);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+            int w = getWidth();
+            int h = getHeight();
+
+            // Background card
+            g2.setColor(ModernUi.COLOR_INPUT_BG);
+            g2.fillRoundRect(0, 0, w, h, 8, 8);
+            g2.setColor(ModernUi.COLOR_INPUT_BORDER);
+            g2.drawRoundRect(0, 0, w - 1, h - 1, 8, 8);
+
+            boolean is2DMode = cardLineScan != null && cardLineScan.isVisible();
+            boolean isLineScan = motorService.isLineScanning();
+            boolean isPreview = motorService.isPreviewRunning();
+
+            int padX = 28;
+            int padY = 20;
+            int availW = w - padX * 2;
+            int availH = h - padY * 2;
+
+            if (availW <= 10 || availH <= 10) {
+                g2.dispose();
+                return;
+            }
+
+            if (is2DMode) {
+                LineScanConfig.ScanAxis axis = (LineScanConfig.ScanAxis) cmbLineAxis.getSelectedItem();
+                boolean posDir = cmbLineDir.getSelectedIndex() == 0;
+                double dist = ((Number) spnLineDistance.getValue()).doubleValue();
+
+                g2.setFont(new Font("Segoe UI", Font.BOLD, 9));
+                g2.setColor(TEXT_MUTED);
+                String infoStr = String.format("2D Line: %s-Axis (%.1f mm)", axis != null ? axis.name() : "X", dist);
+                g2.drawString(infoStr, 8, 13);
+
+                String dirStr = posDir ? "Sweep: Positive (+)" : "Sweep: Negative (-)";
+                int dirW = g2.getFontMetrics().stringWidth(dirStr);
+                g2.drawString(dirStr, w - dirW - 8, 13);
+
+                int pad = 30;
+                if (axis == LineScanConfig.ScanAxis.X) {
+                    int lineY = h / 2 - 2;
+                    int x1 = pad;
+                    int x2 = w - pad;
+                    int startX = posDir ? x1 : x2;
+                    int endX = posDir ? x2 : x1;
+
+                    // Guide rail
+                    g2.setColor(new Color(0x24, 0x2B, 0x3A));
+                    g2.setStroke(new BasicStroke(4.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.drawLine(x1, lineY, x2, lineY);
+
+                    // Active trajectory
+                    g2.setColor(isLineScan ? ACCENT_CYAN : new Color(0x00, 0x97, 0xA7));
+                    g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.drawLine(startX, lineY, endX, lineY);
+
+                    // Start origin dot
+                    g2.setColor(ACCENT_GREEN);
+                    g2.fillOval(startX - 4, lineY - 4, 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.drawOval(startX - 4, lineY - 4, 8, 8);
+
+                    // Direction arrow
+                    drawSmallArrow(g2, startX, lineY, (startX + endX) / 2, lineY, ACCENT_CYAN);
+                } else {
+                    int lineX = w / 2;
+                    int y1 = h - 18;
+                    int y2 = 18;
+                    int startY = posDir ? y1 : y2;
+                    int endY = posDir ? y2 : y1;
+
+                    // Guide rail
+                    g2.setColor(new Color(0x24, 0x2B, 0x3A));
+                    g2.setStroke(new BasicStroke(4.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.drawLine(lineX, y2, lineX, y1);
+
+                    // Active trajectory
+                    g2.setColor(isLineScan ? ACCENT_CYAN : new Color(0x00, 0x97, 0xA7));
+                    g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.drawLine(lineX, startY, lineX, endY);
+
+                    // Start origin dot
+                    g2.setColor(ACCENT_GREEN);
+                    g2.fillOval(lineX - 4, startY - 4, 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.drawOval(lineX - 4, startY - 4, 8, 8);
+
+                    // Direction arrow
+                    drawSmallArrow(g2, lineX, startY, lineX, (startY + endY) / 2, ACCENT_CYAN);
+                }
+
+                if (isLineScan) {
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 9));
+                    g2.setColor(ACCENT_CYAN);
+                    String pStr = "● 2D LINE SCAN IN PROGRESS";
+                    int pW = g2.getFontMetrics().stringWidth(pStr);
+                    g2.drawString(pStr, (w - pW) / 2, h - 4);
+                }
+            } else {
+                double widthX = settings.getChamberWidthX();
+                double lengthY = settings.getChamberLengthY();
+                boolean startPosX = settings.isStartPositiveX();
+                boolean advancePosY = settings.isAdvancePositiveY();
+
+                // Aspect ratio scaling
+                double aspect = widthX / Math.max(1.0, lengthY);
+                double rectW = availW;
+                double rectH = availW / aspect;
+                if (rectH > availH) {
+                    rectH = availH;
+                    rectW = availH * aspect;
+                }
+                rectW = Math.max(24, Math.min(availW, rectW));
+                rectH = Math.max(24, Math.min(availH, rectH));
+
+                int rx = (int) Math.round((w - rectW) / 2.0);
+                int ry = (int) Math.round((h - rectH) / 2.0) + 2;
+
+                // Fill area
+                Color fillColor = isPreview ? new Color(0x00, 0xE5, 0xFF, 40) : new Color(0x00, 0xE5, 0xFF, 18);
+                g2.setColor(fillColor);
+                g2.fillRect(rx, ry, (int) rectW, (int) rectH);
+
+                // Subtle hatched raster lines inside to represent scan lines
+                g2.setColor(new Color(0x00, 0xE5, 0xFF, 30));
+                int numLines = Math.min(8, Math.max(3, (int) (rectH / 8)));
+                for (int i = 1; i < numLines; i++) {
+                    int ly = ry + (int) (i * rectH / numLines);
+                    g2.drawLine(rx + 2, ly, rx + (int) rectW - 2, ly);
+                }
+
+                // Perimeter outline
+                g2.setColor(isPreview ? ACCENT_CYAN : ModernUi.COLOR_CYAN_DIM);
+                g2.setStroke(new BasicStroke(isPreview ? 2.0f : 1.2f));
+                g2.drawRect(rx, ry, (int) rectW, (int) rectH);
+
+                // Starting corner indicator
+                int startCornerX = startPosX ? rx : (rx + (int) rectW);
+                int startCornerY = advancePosY ? (ry + (int) rectH) : ry;
+
+                g2.setColor(ACCENT_GREEN);
+                g2.fillOval(startCornerX - 4, startCornerY - 4, 8, 8);
+                g2.setColor(Color.WHITE);
+                g2.drawOval(startCornerX - 4, startCornerY - 4, 8, 8);
+
+                // Direction arrow along Leg 1 (sweep X)
+                int arrowY = startCornerY;
+                int arrowX1 = startPosX ? (rx + 4) : (rx + (int) rectW - 4);
+                int arrowX2 = startPosX ? (rx + Math.min(26, (int) rectW - 4)) : (rx + (int) rectW - Math.min(26, (int) rectW - 4));
+                drawSmallArrow(g2, arrowX1, arrowY, arrowX2, arrowY, ACCENT_CYAN);
+
+                // Text Labels
+                g2.setFont(new Font("Segoe UI", Font.BOLD, 9));
+                g2.setColor(TEXT_MUTED);
+                String dimStr = String.format("%.0f × %.0f mm", widthX, lengthY);
+                g2.drawString(dimStr, 8, 13);
+
+                String dirStr = String.format("Start: %s, %s", startPosX ? "+X" : "-X", advancePosY ? "+Y" : "-Y");
+                int dirW = g2.getFontMetrics().stringWidth(dirStr);
+                g2.drawString(dirStr, w - dirW - 8, 13);
+
+                if (isPreview) {
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 9));
+                    g2.setColor(ACCENT_CYAN);
+                    String pStr = "● TRACING SCAN RECTANGLE";
+                    int pW = g2.getFontMetrics().stringWidth(pStr);
+                    g2.drawString(pStr, (w - pW) / 2, h - 4);
+                }
+            }
+
+            g2.dispose();
+        }
+
+        private void drawSmallArrow(Graphics2D g2, int x1, int y1, int x2, int y2, Color color) {
+            g2.setColor(color);
+            g2.setStroke(new BasicStroke(1.5f));
+            g2.drawLine(x1, y1, x2, y2);
+            double angle = Math.atan2(y2 - y1, x2 - x1);
+            int arrowLen = 5;
+            int x3 = (int) (x2 - arrowLen * Math.cos(angle - Math.PI / 6));
+            int y3 = (int) (y2 - arrowLen * Math.sin(angle - Math.PI / 6));
+            int x4 = (int) (x2 - arrowLen * Math.cos(angle + Math.PI / 6));
+            int y4 = (int) (y2 - arrowLen * Math.sin(angle + Math.PI / 6));
+            g2.drawLine(x2, y2, x3, y3);
+            g2.drawLine(x2, y2, x4, y4);
+        }
     }
 }

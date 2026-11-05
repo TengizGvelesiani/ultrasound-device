@@ -2,6 +2,8 @@ package com.ultrasound.bscan.controller;
 
 import com.ultrasound.bscan.io.DataAcquisitionSource;
 import com.ultrasound.bscan.io.FpgaCommandProtocol;
+import com.ultrasound.bscan.io.SimulatedDataAcquisitionSource;
+import com.ultrasound.bscan.model.LineScanConfig;
 import com.ultrasound.bscan.model.MotorSettings;
 
 import java.util.List;
@@ -38,12 +40,19 @@ public final class MotorControllerService {
 
     // Scan State
     private final AtomicBoolean chamberScanning = new AtomicBoolean(false);
+    private final AtomicBoolean previewRunning = new AtomicBoolean(false);
+    private final AtomicBoolean lineScanning = new AtomicBoolean(false);
     private final ExecutorService scanExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "ChamberScan-Supervisor");
         t.setDaemon(true);
         return t;
     });
     private Future<?> activeScanFuture;
+    private volatile Runnable preScanAction;
+
+    public void setPreScanAction(Runnable action) {
+        this.preScanAction = action;
+    }
 
     public MotorControllerService(MotorSettings settings) {
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
@@ -70,6 +79,18 @@ public final class MotorControllerService {
 
     public boolean isChamberScanning() {
         return chamberScanning.get();
+    }
+
+    public boolean isPreviewRunning() {
+        return previewRunning.get();
+    }
+
+    public boolean isLineScanning() {
+        return lineScanning.get();
+    }
+
+    public boolean isBusy() {
+        return chamberScanning.get() || previewRunning.get() || lineScanning.get();
     }
 
     public double getCurrentPositionXMm() {
@@ -114,9 +135,17 @@ public final class MotorControllerService {
         if (activeScanFuture != null && !activeScanFuture.isDone()) {
             activeScanFuture.cancel(true);
         }
-        chamberScanning.set(false);
+        boolean wasScanning = chamberScanning.getAndSet(false);
+        boolean wasPreviewing = previewRunning.getAndSet(false);
+        boolean wasLineScanning = lineScanning.getAndSet(false);
         sendPacket(FpgaCommandProtocol.buildHaltPacket());
-        notifyStateChanged(false, "Motion halted by user.");
+        if (wasScanning || wasPreviewing || wasLineScanning) {
+            String abortMsg = wasPreviewing ? "Scan area preview aborted."
+                    : (wasLineScanning ? "2D Line Scan aborted." : "Motion halted by user.");
+            notifyStateChanged(false, abortMsg);
+        } else {
+            notifyStateChanged(false, "Motion halted by user.");
+        }
     }
 
     /**
@@ -134,6 +163,14 @@ public final class MotorControllerService {
             notifyProgress(totalLines, totalLines, 100.0);
             notifyPosition();
             notifyStateChanged(false, "Chamber Scan Completed (Hardware Synchronized)!");
+        } else if (lineScanning.compareAndSet(true, false)) {
+            if (activeScanFuture != null && !activeScanFuture.isDone()) {
+                activeScanFuture.cancel(true);
+            }
+            sendPacket(FpgaCommandProtocol.buildHaltPacket());
+            notifyProgress(1, 1, 100.0);
+            notifyPosition();
+            notifyStateChanged(false, "2D Line Scan Completed (Hardware Synchronized)!");
         }
     }
 
@@ -141,7 +178,7 @@ public final class MotorControllerService {
      * Updates progress based on hardware raster lines acquired.
      */
     public void updateHardwareProgress(int currentLine, int totalLines, double percent) {
-        if (chamberScanning.get()) {
+        if (chamberScanning.get() || lineScanning.get()) {
             notifyProgress(currentLine, totalLines, percent);
         }
     }
@@ -153,8 +190,8 @@ public final class MotorControllerService {
      * @param distanceMm distance in mm (if <= 0, uses settings jogIncrementMm)
      */
     public synchronized void jogX(boolean positive, double distanceMm) {
-        if (chamberScanning.get()) {
-            notifyStateChanged(true, "Cannot jog during an active chamber scan. Halt scan first.");
+        if (isBusy()) {
+            notifyStateChanged(true, "Cannot jog during active scan or area preview. Halt first.");
             return;
         }
 
@@ -191,8 +228,8 @@ public final class MotorControllerService {
      * @param distanceMm distance in mm (if <= 0, uses settings jogIncrementMm)
      */
     public synchronized void jogY(boolean positive, double distanceMm) {
-        if (chamberScanning.get()) {
-            notifyStateChanged(true, "Cannot jog during an active chamber scan. Halt scan first.");
+        if (isBusy()) {
+            notifyStateChanged(true, "Cannot jog during active scan or area preview. Halt first.");
             return;
         }
 
@@ -225,9 +262,183 @@ public final class MotorControllerService {
      * One-click trigger for full XY chamber raster scan.
      * Transmits the hardware command to the FPGA with user-selected start directions.
      */
+    /**
+     * One-click trigger for motorized single-axis 2D Line Scan along X or Y.
+     * Synchronously prepares 2D buffer and supervises motor motion.
+     *
+     * @param lineConfig line scan settings (axis, distance, direction, speed, autoReturn)
+     */
+    public synchronized void triggerLineScan(LineScanConfig lineConfig) {
+        if (isBusy()) {
+            notifyStateChanged(true, "Scanner or stage motion is already active.");
+            return;
+        }
+
+        final LineScanConfig config = new LineScanConfig(lineConfig);
+        final LineScanConfig.ScanAxis axis = config.getAxis();
+        final double distanceMm = config.getDistanceMm();
+        final double stepDeltaMm = config.getStepDeltaMm();
+        final boolean positive = config.isPositiveDir();
+        final double speed = config.getSpeedMmPerSec();
+
+        final long totalSteps = axis == LineScanConfig.ScanAxis.X
+                ? settings.mmToStepsX(distanceMm)
+                : settings.mmToStepsY(distanceMm);
+
+        final int deltaSteps = (int) Math.clamp(Math.round(
+                (axis == LineScanConfig.ScanAxis.X ? settings.getStepsPerMmX() : settings.getStepsPerMmY()) * stepDeltaMm),
+                1, 255);
+
+        final long halfPeriod = FpgaCommandProtocol.calculateHalfPeriodCycles(
+                speed * (axis == LineScanConfig.ScanAxis.X ? settings.getStepsPerMmX() : settings.getStepsPerMmY()));
+        final int totalLines = config.getTotalScanLines();
+
+        final long startStepX = currentStepX;
+        final long startStepY = currentStepY;
+
+        // 1. Synchronize speed configuration
+        updateSpeed();
+        try {
+            Thread.sleep(15);
+        } catch (InterruptedException ignored) {}
+
+        lineScanning.set(true);
+
+        // 2. Pre-scan action (resizes 2D buffer, initializes spatial calibration)
+        if (preScanAction != null) {
+            try {
+                preScanAction.run();
+            } catch (Exception ex) {
+                System.err.println("[MotorControllerService] Pre-scan action error: " + ex.getMessage());
+            }
+        }
+
+        // 3. Transmit packet or start simulation
+        if (acquisitionSource instanceof SimulatedDataAcquisitionSource sim) {
+            sim.startLineScan(axis, distanceMm, positive, speed);
+        } else {
+            byte axisByte = axis == LineScanConfig.ScanAxis.X ? FpgaCommandProtocol.AXIS_X : FpgaCommandProtocol.AXIS_Y;
+            byte[] packet = FpgaCommandProtocol.buildLineScanPacket(axisByte, positive, totalSteps, deltaSteps, halfPeriod);
+            boolean sent = sendPacket(packet);
+            if (!sent) {
+                lineScanning.set(false);
+                notifyStateChanged(false, "Failed to send line scan command: port not ready.");
+                return;
+            }
+        }
+        String dirSymbol = positive ? "+" : "-";
+        notifyStateChanged(true, String.format("2D Line Scan Started (%s-Axis: %s%.1f mm @ %.1f mm/s, %d lines)...",
+                axis.name(), dirSymbol, distanceMm, speed, totalLines));
+
+        activeScanFuture = scanExecutor.submit(() -> runLineScanSupervisor(
+                config, startStepX, startStepY, totalSteps, halfPeriod, totalLines));
+    }
+
+    private void runLineScanSupervisor(LineScanConfig config,
+                                       long startStepX, long startStepY,
+                                       long totalSteps, long halfPeriod, int totalLines) {
+        final LineScanConfig.ScanAxis axis = config.getAxis();
+        final boolean positive = config.isPositiveDir();
+        final double distanceMm = config.getDistanceMm();
+        final double speed = config.getSpeedMmPerSec();
+        final boolean autoReturn = config.isAutoReturn();
+
+        long sweepTimeMs = Math.max(50, Math.round((distanceMm / Math.max(0.5, speed)) * 1000.0));
+        long startTime = System.currentTimeMillis();
+        long updateIntervalMs = 25;
+
+        long endStepX = startStepX + (axis == LineScanConfig.ScanAxis.X ? (positive ? totalSteps : -totalSteps) : 0);
+        long endStepY = startStepY + (axis == LineScanConfig.ScanAxis.Y ? (positive ? totalSteps : -totalSteps) : 0);
+
+        try {
+            while (lineScanning.get()) {
+                long elapsed = System.currentTimeMillis() - startTime;
+                if (elapsed >= sweepTimeMs) {
+                    break;
+                }
+                double frac = Math.clamp((double) elapsed / sweepTimeMs, 0.0, 1.0);
+                if (axis == LineScanConfig.ScanAxis.X) {
+                    currentStepX = Math.round(startStepX + frac * (endStepX - startStepX));
+                } else {
+                    currentStepY = Math.round(startStepY + frac * (endStepY - startStepY));
+                }
+
+                int curLine = (int) Math.clamp(Math.round(frac * totalLines), 1, totalLines);
+                notifyProgress(curLine, totalLines, frac * 100.0);
+                notifyPosition();
+
+                long sleepTime = Math.min(updateIntervalMs, sweepTimeMs - elapsed);
+                if (sleepTime > 0) {
+                    Thread.sleep(sleepTime);
+                }
+            }
+
+            if (!lineScanning.get()) {
+                return;
+            }
+
+            // Snap to final coordinate
+            currentStepX = endStepX;
+            currentStepY = endStepY;
+            notifyProgress(totalLines, totalLines, 100.0);
+            notifyPosition();
+
+            // Settle pause
+            Thread.sleep(100);
+
+            // Handle auto-return if configured
+            if (autoReturn && lineScanning.get()) {
+                notifyStateChanged(true, "Line scan complete. Returning to start position...");
+                byte axisByte = axis == LineScanConfig.ScanAxis.X ? FpgaCommandProtocol.AXIS_X : FpgaCommandProtocol.AXIS_Y;
+                long returnHalfPeriod = settings.calculateHalfPeriodCycles();
+                byte[] returnPacket = FpgaCommandProtocol.buildJogPacket(axisByte, !positive, totalSteps, returnHalfPeriod);
+                sendPacket(returnPacket);
+
+                long returnStart = System.currentTimeMillis();
+                while (lineScanning.get()) {
+                    long elapsed = System.currentTimeMillis() - returnStart;
+                    if (elapsed >= sweepTimeMs) {
+                        break;
+                    }
+                    double frac = Math.clamp((double) elapsed / sweepTimeMs, 0.0, 1.0);
+                    if (axis == LineScanConfig.ScanAxis.X) {
+                        currentStepX = Math.round(endStepX + frac * (startStepX - endStepX));
+                    } else {
+                        currentStepY = Math.round(endStepY + frac * (startStepY - endStepY));
+                    }
+                    notifyPosition();
+
+                    long sleepTime = Math.min(updateIntervalMs, sweepTimeMs - elapsed);
+                    if (sleepTime > 0) {
+                        Thread.sleep(sleepTime);
+                    }
+                }
+
+                currentStepX = startStepX;
+                currentStepY = startStepY;
+                notifyPosition();
+            }
+
+            if (lineScanning.compareAndSet(true, false)) {
+                sendPacket(FpgaCommandProtocol.buildHaltPacket());
+                String msg = String.format("2D Line Scan Completed (%s-Axis: %.1f mm)%s",
+                        axis.name(), distanceMm, autoReturn ? " (Returned to origin)" : "");
+                notifyStateChanged(false, msg);
+            }
+        } catch (InterruptedException ignored) {
+            sendPacket(FpgaCommandProtocol.buildHaltPacket());
+            notifyStateChanged(false, "2D Line Scan aborted.");
+        } finally {
+            if (lineScanning.compareAndSet(true, false)) {
+                sendPacket(FpgaCommandProtocol.buildHaltPacket());
+                notifyStateChanged(false, "2D Line Scan finished.");
+            }
+        }
+    }
+
     public synchronized void triggerChamberScan() {
-        if (chamberScanning.get()) {
-            notifyStateChanged(true, "Chamber scan is already running.");
+        if (isBusy()) {
+            notifyStateChanged(true, "Chamber scan or preview is already running.");
             return;
         }
 
@@ -266,17 +477,160 @@ public final class MotorControllerService {
                 halfPeriod
         );
 
+        chamberScanning.set(true);
+
+        // Execute synchronous pre-scan preparation (buffer allocation & queue flush) before FPGA starts pulsing
+        if (preScanAction != null) {
+            try {
+                preScanAction.run();
+            } catch (Exception ex) {
+                System.err.println("[MotorControllerService] Pre-scan action error: " + ex.getMessage());
+            }
+        }
+
         boolean sent = sendPacket(packet);
         if (!sent) {
+            chamberScanning.set(false);
             notifyStateChanged(false, "Failed to send chamber scan command: port not ready.");
             return;
         }
-
-        chamberScanning.set(true);
         String dirDesc = (startPosX ? "+X" : "-X") + ", " + (advancePosY ? "+Y" : "-Y");
         notifyStateChanged(true, "Autonomous Chamber Scan Started (" + widthX + " x " + lengthY + " mm @ " + speed + " mm/s, Start: " + dirDesc + ").");
 
         activeScanFuture = scanExecutor.submit(() -> runChamberScanSupervisor(widthX, lengthY, lineSpacing, speed, totalLines, startPosX));
+    }
+
+    /**
+     * One-click trigger for fast perimeter scan area framing.
+     * Moves the stepper motors along the rectangular boundary of the configured chamber scan
+     * (starting in the configured X and Y directions) and precisely returns to the original starting position.
+     */
+    public synchronized void previewScanArea() {
+        if (isBusy()) {
+            notifyStateChanged(true, "Chamber scan or preview is already running.");
+            return;
+        }
+
+        final double widthX = settings.getChamberWidthX();
+        final double lengthY = settings.getChamberLengthY();
+        final boolean startPosX = settings.isStartPositiveX();
+        final boolean advancePosY = settings.isAdvancePositiveY();
+        final double previewSpeed = settings.getPreviewSpeedMmPerSec();
+
+        final long startStepX = currentStepX;
+        final long startStepY = currentStepY;
+
+        previewRunning.set(true);
+        String dirDesc = (startPosX ? "+X" : "-X") + ", " + (advancePosY ? "+Y" : "-Y");
+        notifyStateChanged(true, String.format("Tracing Scan Area Rectangle (%.1f x %.1f mm @ %.1f mm/s, %s)...",
+                widthX, lengthY, previewSpeed, dirDesc));
+
+        activeScanFuture = scanExecutor.submit(() -> runPreviewAreaSupervisor(
+                startStepX, startStepY, widthX, lengthY, startPosX, advancePosY, previewSpeed));
+    }
+
+    private void runPreviewAreaSupervisor(long startStepX, long startStepY,
+                                          double widthX, double lengthY,
+                                          boolean startPosX, boolean advancePosY,
+                                          double speed) {
+        long stepsX = settings.mmToStepsX(widthX);
+        long stepsY = settings.mmToStepsY(lengthY);
+
+        long halfPeriodX = FpgaCommandProtocol.calculateHalfPeriodCycles(speed * settings.getStepsPerMmX());
+        long halfPeriodY = FpgaCommandProtocol.calculateHalfPeriodCycles(speed * settings.getStepsPerMmY());
+
+        long stepX1 = startStepX + (startPosX ? stepsX : -stepsX);
+        long stepY1 = startStepY;
+
+        long stepX2 = stepX1;
+        long stepY2 = startStepY + (advancePosY ? stepsY : -stepsY);
+
+        long stepX3 = startStepX;
+        long stepY3 = stepY2;
+
+        long stepX4 = startStepX;
+        long stepY4 = startStepY;
+
+        record PreviewLeg(byte axis, boolean dir, double distMm, long steps, long halfPeriod,
+                          long fromStepX, long fromStepY, long toStepX, long toStepY, String desc) {}
+
+        PreviewLeg[] legs = new PreviewLeg[]{
+                new PreviewLeg(FpgaCommandProtocol.AXIS_X, startPosX, widthX, stepsX, halfPeriodX,
+                        startStepX, startStepY, stepX1, stepY1, "Leg 1/4 (X: " + (startPosX ? "+X" : "-X") + ")"),
+                new PreviewLeg(FpgaCommandProtocol.AXIS_Y, advancePosY, lengthY, stepsY, halfPeriodY,
+                        stepX1, stepY1, stepX2, stepY2, "Leg 2/4 (Y: " + (advancePosY ? "+Y" : "-Y") + ")"),
+                new PreviewLeg(FpgaCommandProtocol.AXIS_X, !startPosX, widthX, stepsX, halfPeriodX,
+                        stepX2, stepY2, stepX3, stepY3, "Leg 3/4 (Return X: " + (!startPosX ? "+X" : "-X") + ")"),
+                new PreviewLeg(FpgaCommandProtocol.AXIS_Y, !advancePosY, lengthY, stepsY, halfPeriodY,
+                        stepX3, stepY3, stepX4, stepY4, "Leg 4/4 (Return Y to origin: " + (!advancePosY ? "+Y" : "-Y") + ")")
+        };
+
+        try {
+            for (int i = 0; i < legs.length && previewRunning.get(); i++) {
+                PreviewLeg leg = legs[i];
+                byte[] packet = FpgaCommandProtocol.buildJogPacket(leg.axis, leg.dir, leg.steps, leg.halfPeriod);
+                boolean sent = sendPacket(packet);
+                if (!sent) {
+                    notifyStateChanged(false, "Failed to send preview command: port not ready.");
+                    previewRunning.set(false);
+                    return;
+                }
+
+                notifyStateChanged(true, "Tracing Scan Area: " + leg.desc);
+
+                long legTimeMs = Math.max(20, Math.round((leg.distMm / Math.max(0.5, speed)) * 1000.0));
+                long legStart = System.currentTimeMillis();
+                long updateIntervalMs = 40;
+
+                while (previewRunning.get()) {
+                    long elapsed = System.currentTimeMillis() - legStart;
+                    if (elapsed >= legTimeMs) {
+                        break;
+                    }
+                    double frac = Math.clamp((double) elapsed / legTimeMs, 0.0, 1.0);
+                    currentStepX = Math.round(leg.fromStepX + frac * (leg.toStepX - leg.fromStepX));
+                    currentStepY = Math.round(leg.fromStepY + frac * (leg.toStepY - leg.fromStepY));
+
+                    double overallPercent = ((i + frac) / 4.0) * 100.0;
+                    notifyProgress(i + 1, 4, overallPercent);
+                    notifyPosition();
+
+                    long sleepTime = Math.min(updateIntervalMs, legTimeMs - elapsed);
+                    if (sleepTime > 0) {
+                        Thread.sleep(sleepTime);
+                    }
+                }
+
+                if (!previewRunning.get()) {
+                    break;
+                }
+
+                currentStepX = leg.toStepX;
+                currentStepY = leg.toStepY;
+                notifyProgress(i + 1, 4, ((i + 1) / 4.0) * 100.0);
+                notifyPosition();
+
+                // Brief settling pause between orthogonal motion legs
+                Thread.sleep(50);
+            }
+
+            if (previewRunning.compareAndSet(true, false)) {
+                currentStepX = startStepX;
+                currentStepY = startStepY;
+                updateSpeed(); // Restore normal FPGA speed
+                notifyProgress(4, 4, 100.0);
+                notifyPosition();
+                notifyStateChanged(false, "Scan Area Preview Completed (Returned to Origin).");
+            }
+        } catch (InterruptedException ignored) {
+            sendPacket(FpgaCommandProtocol.buildHaltPacket());
+                notifyStateChanged(false, "Scan area preview aborted.");
+        } finally {
+            if (previewRunning.compareAndSet(true, false)) {
+                sendPacket(FpgaCommandProtocol.buildHaltPacket());
+                        notifyStateChanged(false, "Scan area preview finished.");
+            }
+        }
     }
 
     private void runChamberScanSupervisor(double widthX, double lengthY, double lineSpacing, double speed, int totalLines, boolean initialPositiveX) {

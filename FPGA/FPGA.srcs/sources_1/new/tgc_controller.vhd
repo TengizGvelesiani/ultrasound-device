@@ -111,8 +111,8 @@ begin
             if pulse_trigger = '1' then
                 tgc_timer    <= 1;
                 tgc_step_cnt <= 0;
-                tgc_value    <= 128;
-                spi_data_reg <= x"3080";
+                tgc_value    <= 100;
+                spi_data_reg <= x"3064";
                 spi_start    <= '1';
             elsif tgc_timer > 0 then
                 if tgc_timer < 25000 then
@@ -127,13 +127,13 @@ begin
                 -- to prevent saturation/clipping on strong reflections (e.g. plastic container boundary).
                 if tgc_step_cnt = 199 then
                     tgc_step_cnt <= 0;
-                    if tgc_value < 1950 then
-                        if tgc_value + 190 >= 1950 then
-                            tgc_value    <= 1950;
-                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(1950, 12));
+                    if tgc_value < 500 then
+                        if tgc_value + 30 >= 500 then
+                            tgc_value    <= 500;
+                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(500, 12));
                         else
-                            tgc_value    <= tgc_value + 190;
-                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(tgc_value + 190, 12));
+                            tgc_value    <= tgc_value + 30;
+                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(tgc_value + 30, 12));
                         end if;
                         spi_start <= '1';
                     end if;

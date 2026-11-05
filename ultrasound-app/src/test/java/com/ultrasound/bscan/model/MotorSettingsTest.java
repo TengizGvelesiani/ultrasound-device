@@ -46,13 +46,19 @@ class MotorSettingsTest {
     void testConstraints() {
         MotorSettings settings = new MotorSettings();
         settings.setChamberWidthX(-10.0);
-        assertTrue(settings.getChamberWidthX() >= 5.0);
+        assertTrue(settings.getChamberWidthX() >= 1.0);
 
         settings.setChamberLengthY(0.0);
-        assertTrue(settings.getChamberLengthY() >= 5.0);
+        assertTrue(settings.getChamberLengthY() >= 1.0);
 
         settings.setSpeedMmPerSec(-5.0);
         assertTrue(settings.getSpeedMmPerSec() >= 0.5);
+
+        assertEquals(25.0, new MotorSettings().getPreviewSpeedMmPerSec());
+        settings.setPreviewSpeedMmPerSec(-10.0);
+        assertTrue(settings.getPreviewSpeedMmPerSec() >= 1.0);
+        settings.setPreviewSpeedMmPerSec(200.0);
+        assertTrue(settings.getPreviewSpeedMmPerSec() <= 100.0);
 
         settings.setLineSpacingY(0.001);
         assertTrue(settings.getLineSpacingY() >= 0.05);

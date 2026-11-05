@@ -30,6 +30,7 @@ public final class FpgaCommandProtocol {
     public static final byte CMD_CHAMBER_SCAN = 0x02;
     public static final byte CMD_SET_SPEED = 0x03;
     public static final byte CMD_ZERO_POSITION = 0x04;
+    public static final byte CMD_LINE_SCAN = 0x05;
 
     // Axes
     public static final byte AXIS_NONE = 0x00;
@@ -114,6 +115,15 @@ public final class FpgaCommandProtocol {
     /**
      * Builds a packet configuring the default stepper speed (half-period cycles).
      */
+    public static byte[] buildLineScanPacket(byte axis, boolean positive, long totalSteps, int deltaSteps, long halfPeriodCycles) {
+        if (axis == AXIS_X) {
+            return buildChamberScanPacket(totalSteps, 0L, 0, deltaSteps, positive, false, halfPeriodCycles);
+        } else {
+            byte dirByte = positive ? DIR_POSITIVE : DIR_NEGATIVE;
+            return buildPacket(CMD_LINE_SCAN, AXIS_Y, dirByte, totalSteps, halfPeriodCycles, deltaSteps);
+        }
+    }
+
     public static byte[] buildSetSpeedPacket(long halfPeriodCycles) {
         return buildPacket(CMD_SET_SPEED, AXIS_NONE, DIR_NEGATIVE, 0L, halfPeriodCycles, 0);
     }

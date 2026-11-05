@@ -16,6 +16,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -33,12 +34,12 @@ public final class ControlPanel extends JPanel {
 
     private final JButton btnRecord = createButton("Pause (Space)", BTN_COLOR);
     private final JButton btnClear = createButton("Clear (C)", BTN_COLOR);
-    private final JButton btnMode = createButton("Mode: Sweep (M)", BTN_COLOR);
-    private final JButton btnViewMode = createButton("2.5D / 3D [TAB]", new Color(0x2E, 0x5B, 0x82));
-    private final JButton btnZoom = createButton("Zoom: Full (Z)", BTN_COLOR);
-    private final JButton btnColormap = createButton("Colormap (V)", BTN_COLOR);
-    private final JButton btnSave = createButton("Save Scan & Data (S)", BTN_SAVE_COLOR);
-    private final JButton btnOpenFolder = createButton("Scans Folder", BTN_COLOR);
+    private final JButton btnMode = createButton("Sweep (M)", BTN_COLOR);
+    private final JButton btnViewMode = createButton("3D Mode [TAB]", new Color(0x2E, 0x5B, 0x82));
+    private final JButton btnZoom = createButton("Full (Z)", BTN_COLOR);
+    private final JButton btnColormap = createButton("Map: Gray (V)", BTN_COLOR);
+    private final JButton btnSave = createButton("Save (S)", BTN_SAVE_COLOR);
+    private final JButton btnOpenFolder = createButton("Folder", BTN_COLOR);
 
     private final JSlider sldSquelch = new JSlider(0, 150, (int) ScannerState.DEFAULT_SQUELCH);
     private final JSlider sldContrast = new JSlider(5, 30, (int) (ScannerState.DEFAULT_CONTRAST * 10));
@@ -133,10 +134,10 @@ public final class ControlPanel extends JPanel {
 
         state.addListener(s -> {
             btnRecord.setText(s.isRecording() ? "Pause (Space)" : "Resume (Space)");
-            btnMode.setText("Mode: " + (s.getMode() == ScanMode.SWEEP ? "Sweep (M)" : "Waterfall (M)"));
-            btnViewMode.setText(s.getViewMode() == com.ultrasound.bscan.model.ViewMode.MODE_2D ? "2.5D / 3D [TAB]" : "2D B-Scan [TAB]");
-            btnZoom.setText("Zoom: " + (s.isZoomNear() ? "Near (Z)" : "Full (Z)"));
-            btnColormap.setText("Colormap: " + s.getColormap().getLabel() + " (V)");
+            btnMode.setText(s.getMode() == ScanMode.SWEEP ? "Sweep (M)" : "Waterfall (M)");
+            btnViewMode.setText(s.getViewMode() == com.ultrasound.bscan.model.ViewMode.MODE_2D ? "3D Mode [TAB]" : "2D Mode [TAB]");
+            btnZoom.setText(s.isZoomNear() ? "Near (Z)" : "Full (Z)");
+            btnColormap.setText("Map: " + s.getColormap().getLabel() + " (V)");
 
             if (sldSquelch.getValue() != (int) s.getSquelch()) {
                 sldSquelch.setValue((int) s.getSquelch());
@@ -153,7 +154,9 @@ public final class ControlPanel extends JPanel {
 
     private JButton createButton(String label, Color bg) {
         ModernUi.RoundedButton btn = new ModernUi.RoundedButton(label, bg, ModernUi.lighten(bg, 0.35f), 6);
-        btn.setPreferredSize(new Dimension(142, 28));
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 9));
+        btn.setPreferredSize(new Dimension(105, 25));
+        btn.setMargin(new Insets(2, 4, 2, 4));
         btn.setFocusable(false);
         return btn;
     }

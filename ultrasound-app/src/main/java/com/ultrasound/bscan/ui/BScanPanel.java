@@ -139,9 +139,16 @@ public final class BScanPanel extends JPanel {
         // Header Title
         g2.setFont(new Font("SansSerif", Font.BOLD, 13));
         g2.setColor(Color.WHITE);
-        String title = state.getMode() == ScanMode.SWEEP
-                ? "2D B-Scan (Mode: SWEEP PASS | [SPACE] to Freeze/Resume | Slide along Axis)"
-                : "2D B-Scan (Mode: CONTINUOUS WATERFALL | Real-Time Rolling View)";
+        String title;
+        if (buffer.isLineScanActive() && state.getMode() == ScanMode.SWEEP) {
+            title = String.format("2D B-Scan (2D LINE SCAN: %s-Axis | %.1f mm | Step: %.2f mm | %d Lines)",
+                    buffer.getLineScanAxisLabel(), buffer.getLineScanLengthMm(),
+                    buffer.getLineScanStepMm(), buffer.getSweepCapacity());
+        } else {
+            title = state.getMode() == ScanMode.SWEEP
+                    ? "2D B-Scan (Mode: SWEEP PASS | [SPACE] to Freeze/Resume | Slide along Axis)"
+                    : "2D B-Scan (Mode: CONTINUOUS WATERFALL | Real-Time Rolling View)";
+        }
         g2.drawString(title, marginLeft, marginTop - 10);
 
         // Render 2D Raster Image
@@ -254,6 +261,10 @@ public final class BScanPanel extends JPanel {
         int activeCols = state.getMode() == ScanMode.SWEEP ? buffer.getSweepCapacity() : buffer.getWaterfallWidth();
         g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
 
+        boolean isLineScan = buffer.isLineScanActive() && state.getMode() == ScanMode.SWEEP;
+        double lineLengthMm = buffer.getLineScanLengthMm();
+        String axisLabel = buffer.getLineScanAxisLabel();
+
         int numDivs = 10;
         for (int i = 0; i <= numDivs; i++) {
             double frac = (double) i / numDivs;
@@ -263,9 +274,15 @@ public final class BScanPanel extends JPanel {
             g2.setStroke(gridStroke);
             g2.drawLine(x, marginTop, x, marginTop + plotH);
 
-            int col = (int) (frac * activeCols);
             g2.setColor(TEXT_COLOR);
-            String label = String.valueOf(col);
+            String label;
+            if (isLineScan && lineLengthMm > 0) {
+                double posMm = frac * lineLengthMm;
+                label = lineLengthMm <= 15.0 ? String.format("%.1f", posMm) : String.format("%.0f", posMm);
+            } else {
+                int col = (int) (frac * activeCols);
+                label = String.valueOf(col);
+            }
             int strW = g2.getFontMetrics().stringWidth(label);
             g2.drawString(label, x - strW / 2, marginTop + plotH + 16);
         }
@@ -273,17 +290,46 @@ public final class BScanPanel extends JPanel {
         // X-axis Title
         g2.setFont(new Font("SansSerif", Font.BOLD, 10));
         g2.setColor(Color.WHITE);
-        String label = state.getMode() == ScanMode.SWEEP ? "Scan Position / Sample Lines" : "Rolling Sweep History (Lines)";
+        String label;
+        if (isLineScan && lineLengthMm > 0) {
+            label = String.format("%s-Axis Position (mm) [Total: %.1f mm]", axisLabel, lineLengthMm);
+        } else if (state.getMode() == ScanMode.SWEEP) {
+            label = "Scan Position / Sample Lines";
+        } else {
+            label = "Rolling Sweep History (Lines)";
+        }
         int strW = g2.getFontMetrics().stringWidth(label);
         g2.drawString(label, marginLeft + (plotW - strW) / 2, marginTop + plotH + 30);
     }
 
     private void drawStatusBadge(Graphics2D g2, int rightEdge) {
-        boolean recording = state.isRecording();
-        String text = recording ? "RECORDING" : "FROZEN / PAUSED";
-        Color badgeBg = recording ? new Color(0x11, 0x28, 0x11) : new Color(0x2E, 0x26, 0x10);
-        Color badgeBorder = recording ? new Color(0x00, 0xAA, 0x44) : new Color(0xAA, 0x88, 0x00);
-        Color textColor = recording ? new Color(0x00, 0xFF, 0x66) : new Color(0xFF, 0xAA, 0x00);
+        String text;
+        Color badgeBg;
+        Color badgeBorder;
+        Color textColor;
+
+        if (buffer.isLineScanActive() && state.getMode() == ScanMode.SWEEP) {
+            int cur = buffer.getSweepIndex();
+            int total = buffer.getSweepCapacity();
+            if (cur < total) {
+                int pct = (int) Math.clamp(Math.round(((double) cur / Math.max(1, total)) * 100.0), 0, 99);
+                text = String.format("LINE SCANNING (%d%%)", pct);
+                badgeBg = new Color(0x10, 0x2A, 0x36);
+                badgeBorder = new Color(0x00, 0xC8, 0x53);
+                textColor = new Color(0x00, 0xE5, 0xFF);
+            } else {
+                text = "LINE SCAN COMPLETE";
+                badgeBg = new Color(0x10, 0x30, 0x18);
+                badgeBorder = new Color(0x00, 0xCC, 0x66);
+                textColor = new Color(0x33, 0xFF, 0x99);
+            }
+        } else {
+            boolean recording = state.isRecording();
+            text = recording ? "RECORDING" : "FROZEN / PAUSED";
+            badgeBg = recording ? new Color(0x11, 0x28, 0x11) : new Color(0x2E, 0x26, 0x10);
+            badgeBorder = recording ? new Color(0x00, 0xAA, 0x44) : new Color(0xAA, 0x88, 0x00);
+            textColor = recording ? new Color(0x00, 0xFF, 0x66) : new Color(0xFF, 0xAA, 0x00);
+        }
 
         g2.setFont(new Font("SansSerif", Font.BOLD, 11));
         int strW = g2.getFontMetrics().stringWidth(text);
@@ -301,7 +347,14 @@ public final class BScanPanel extends JPanel {
     }
 
     private void drawHoverHud(Graphics2D g2, int x, int y) {
-        String text = String.format("Cursor: %.1f mm | Line %d | Echo: %.0f", hoverDepthMm, hoverCol, hoverEcho);
+        String text;
+        if (buffer.isLineScanActive() && state.getMode() == ScanMode.SWEEP && buffer.getLineScanLengthMm() > 0) {
+            double posMm = ((double) hoverCol / Math.max(1, buffer.getSweepCapacity() - 1)) * buffer.getLineScanLengthMm();
+            text = String.format("Depth: %.1f mm | %s: %.2f mm (Line %d) | Echo: %.0f",
+                    hoverDepthMm, buffer.getLineScanAxisLabel(), posMm, hoverCol + 1, hoverEcho);
+        } else {
+            text = String.format("Cursor: %.1f mm | Line %d | Echo: %.0f", hoverDepthMm, hoverCol, hoverEcho);
+        }
         g2.setFont(new Font("SansSerif", Font.BOLD, 10));
         int strW = g2.getFontMetrics().stringWidth(text);
         int hudW = strW + 14;

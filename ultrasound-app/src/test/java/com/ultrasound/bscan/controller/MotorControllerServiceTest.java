@@ -157,4 +157,123 @@ class MotorControllerServiceTest {
         service.halt();
         assertFalse(service.isChamberScanning());
     }
+
+    @Test
+    @DisplayName("Preview scan area triggers fast perimeter jog in start direction and can be halted")
+    void testPreviewScanAreaInitialPacketAndState() throws InterruptedException {
+        service.previewScanArea();
+
+        assertTrue(service.isPreviewRunning());
+        assertTrue(service.isBusy());
+
+        long t0 = System.currentTimeMillis();
+        while (mockSource.sentPackets.isEmpty() && System.currentTimeMillis() - t0 < 1000) {
+            Thread.sleep(5);
+        }
+        assertFalse(mockSource.sentPackets.isEmpty());
+
+        byte[] packet = mockSource.sentPackets.getFirst();
+        assertTrue(FpgaCommandProtocol.isValidPacket(packet));
+        assertEquals(FpgaCommandProtocol.CMD_JOG, packet[2]);
+        assertEquals(FpgaCommandProtocol.AXIS_X, packet[3]);
+        assertEquals(FpgaCommandProtocol.DIR_POSITIVE, packet[4]); // Start +X
+        assertEquals(40_000L, settings.mmToStepsX(100.0));
+
+        // Halt preview
+        service.halt();
+        assertFalse(service.isPreviewRunning());
+        assertFalse(service.isBusy());
+
+        byte[] haltPacket = mockSource.sentPackets.getLast();
+        assertTrue(FpgaCommandProtocol.isValidPacket(haltPacket));
+        assertEquals(FpgaCommandProtocol.CMD_HALT, haltPacket[2]);
+    }
+
+    @Test
+    @DisplayName("Preview scan area honors negative initial start directions (-X, -Y)")
+    void testPreviewScanAreaNegativeDirections() throws InterruptedException {
+        settings.setStartPositiveX(false);
+        settings.setAdvancePositiveY(false);
+
+        service.previewScanArea();
+        assertTrue(service.isPreviewRunning());
+
+        long t0 = System.currentTimeMillis();
+        while (mockSource.sentPackets.isEmpty() && System.currentTimeMillis() - t0 < 1000) {
+            Thread.sleep(5);
+        }
+        assertFalse(mockSource.sentPackets.isEmpty());
+
+        byte[] packet = mockSource.sentPackets.getFirst();
+        assertTrue(FpgaCommandProtocol.isValidPacket(packet));
+        assertEquals(FpgaCommandProtocol.CMD_JOG, packet[2]);
+        assertEquals(FpgaCommandProtocol.AXIS_X, packet[3]);
+        assertEquals(FpgaCommandProtocol.DIR_NEGATIVE, packet[4]); // Start -X
+
+        service.halt();
+        assertFalse(service.isPreviewRunning());
+    }
+
+    @Test
+    @DisplayName("Preview scan area covers all 4 rectangle legs and returns to exact original position")
+    void testPreviewScanAreaTracesRectangleAndReturnsToOrigin() throws InterruptedException {
+        // Position stage at offset origin (10 mm, 10 mm)
+        service.jogX(true, 10.0);
+        service.jogY(true, 10.0);
+        assertEquals(10.0, service.getCurrentPositionXMm(), 0.001);
+        assertEquals(10.0, service.getCurrentPositionYMm(), 0.001);
+
+        mockSource.sentPackets.clear();
+
+        // 5mm x 5mm at 100 mm/s runs in ~50ms per leg
+        settings.setChamberWidthX(5.0);
+        settings.setChamberLengthY(5.0);
+        settings.setPreviewSpeedMmPerSec(100.0);
+        settings.setStartPositiveX(true);
+        settings.setAdvancePositiveY(true);
+
+        service.previewScanArea();
+
+        // Wait for preview to complete
+        long startWait = System.currentTimeMillis();
+        while (service.isBusy() && (System.currentTimeMillis() - startWait < 3000)) {
+            Thread.sleep(20);
+        }
+
+        assertFalse(service.isBusy(), "Preview should complete within timeout");
+        assertFalse(service.isPreviewRunning());
+
+        // Verify return to exact original position
+        assertEquals(10.0, service.getCurrentPositionXMm(), 0.001);
+        assertEquals(10.0, service.getCurrentPositionYMm(), 0.001);
+        assertEquals(4000L, service.getCurrentStepX());
+        assertEquals(4000L, service.getCurrentStepY());
+
+        // Verify all 4 rectangle legs were commanded in order
+        // Leg 1: Axis X, positive
+        // Leg 2: Axis Y, positive
+        // Leg 3: Axis X, negative (return)
+        // Leg 4: Axis Y, negative (return to origin)
+        assertTrue(mockSource.sentPackets.size() >= 4);
+
+        byte[] leg1 = mockSource.sentPackets.get(0);
+        assertEquals(FpgaCommandProtocol.CMD_JOG, leg1[2]);
+        assertEquals(FpgaCommandProtocol.AXIS_X, leg1[3]);
+        assertEquals(FpgaCommandProtocol.DIR_POSITIVE, leg1[4]);
+
+        byte[] leg2 = mockSource.sentPackets.get(1);
+        assertEquals(FpgaCommandProtocol.CMD_JOG, leg2[2]);
+        assertEquals(FpgaCommandProtocol.AXIS_Y, leg2[3]);
+        assertEquals(FpgaCommandProtocol.DIR_POSITIVE, leg2[4]);
+
+        byte[] leg3 = mockSource.sentPackets.get(2);
+        assertEquals(FpgaCommandProtocol.CMD_JOG, leg3[2]);
+        assertEquals(FpgaCommandProtocol.AXIS_X, leg3[3]);
+        assertEquals(FpgaCommandProtocol.DIR_NEGATIVE, leg3[4]);
+
+        byte[] leg4 = mockSource.sentPackets.get(3);
+        assertEquals(FpgaCommandProtocol.CMD_JOG, leg4[2]);
+        assertEquals(FpgaCommandProtocol.AXIS_Y, leg4[3]);
+        assertEquals(FpgaCommandProtocol.DIR_NEGATIVE, leg4[4]);
+    }
 }

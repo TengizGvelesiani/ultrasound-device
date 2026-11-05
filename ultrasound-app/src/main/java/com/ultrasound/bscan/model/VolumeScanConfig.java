@@ -14,9 +14,9 @@ public final class VolumeScanConfig {
         public String getLabel() { return label; }
     }
 
-    public static final int DEFAULT_GRID_X = 50;
-    public static final int DEFAULT_GRID_Y = 50;
-    public static final double DEFAULT_STEP_X_MM = 1.0;
+    public static final int DEFAULT_GRID_X = 100;
+    public static final int DEFAULT_GRID_Y = 41;
+    public static final double DEFAULT_STEP_X_MM = 0.1;
     public static final double DEFAULT_STEP_Y_MM = 1.0;
 
     private int gridX;
@@ -28,7 +28,7 @@ public final class VolumeScanConfig {
     private double gateMaxDepthMm;
 
     public VolumeScanConfig() {
-        this(DEFAULT_GRID_X, DEFAULT_GRID_Y, DEFAULT_STEP_X_MM, DEFAULT_STEP_Y_MM, ScanPattern.SNAKE, 12.0, 16.0);
+        this(DEFAULT_GRID_X, DEFAULT_GRID_Y, DEFAULT_STEP_X_MM, DEFAULT_STEP_Y_MM, ScanPattern.SNAKE, 11.0, 16.0);
     }
 
     public VolumeScanConfig(int gridX, int gridY, double stepSizeXMm, double stepSizeYMm,
@@ -57,8 +57,8 @@ public final class VolumeScanConfig {
     public double getTotalWidthXMm() { return (gridX - 1) * stepSizeXMm; }
     public double getTotalHeightYMm() { return (gridY - 1) * stepSizeYMm; }
 
-    public ScanPattern getPattern() { return pattern; }
-    public void setPattern(ScanPattern pattern) { this.pattern = pattern; }
+    public ScanPattern getPattern() { return ScanPattern.SNAKE; }
+    public void setPattern(ScanPattern pattern) { this.pattern = ScanPattern.SNAKE; }
 
     public double getGateMinDepthMm() { return gateMinDepthMm; }
     public void setGateMinDepthMm(double gateMinDepthMm) { this.gateMinDepthMm = gateMinDepthMm; }

@@ -3,6 +3,7 @@ package com.ultrasound.bscan.model;
 import com.ultrasound.bscan.colormap.ColormapType;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -17,6 +18,7 @@ public final class ScannerState {
     private ScanMode mode = ScanMode.SWEEP;
     private ViewMode viewMode = ViewMode.MODE_2D;
     private VolumeScanConfig volumeConfig = new VolumeScanConfig();
+    private LineScanConfig lineScanConfig = new LineScanConfig();
     private Render3DStyle render3DStyle = Render3DStyle.SHADED_SURFACE;
     private double depthExaggeration = 1.8;
     private boolean recording = true;
@@ -26,8 +28,8 @@ public final class ScannerState {
     private ColormapType colormap = ColormapType.TURBO;
     private boolean colormapInverted = false;
     private double colormapGamma = 1.0;
-    private double colorMinDepthMm = 12.0;
-    private double colorMaxDepthMm = 16.0;
+    private double colorMinDepthMm = 8.5;
+    private double colorMaxDepthMm = 20.0;
     private boolean colorRangeLockToGate = true;
 
     private volatile AScanFrame latestFrame = null;
@@ -78,6 +80,15 @@ public final class ScannerState {
 
     public void toggleViewMode() {
         setViewMode(this.viewMode == ViewMode.MODE_2D ? ViewMode.MODE_3D : ViewMode.MODE_2D);
+    }
+
+    public LineScanConfig getLineScanConfig() {
+        return lineScanConfig;
+    }
+
+    public void setLineScanConfig(LineScanConfig lineScanConfig) {
+        this.lineScanConfig = Objects.requireNonNull(lineScanConfig, "lineScanConfig must not be null");
+        notifyListeners();
     }
 
     public VolumeScanConfig getVolumeConfig() {

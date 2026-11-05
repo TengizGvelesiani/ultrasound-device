@@ -17,6 +17,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Insets;
 
 /**
  * Self-sufficient control bar for 2.5D / 3D volumetric scanning,
@@ -35,26 +36,25 @@ public final class VolumeControlPanel extends JPanel {
     private final ScannerState state;
     private final VolumeBuffer volumeBuffer;
 
-    private final JButton btnSwitchMode = createButton("Switch to 2D Mode [TAB]", BTN_MODE_COLOR);
+    private final JButton btnSwitchMode = createButton("2D Mode [TAB]", BTN_MODE_COLOR);
     private final JButton btnRecord = createButton("Pause (Space)", BTN_COLOR);
-    private final JButton btnStyle = createButton("Style: 3D Surface [Y]", BTN_COLOR);
-    private final JButton btnColormap = createButton("Colormap (V)", BTN_COLOR);
-    private final JButton btnTuneColors = createButton("Tune Colors [K]", BTN_TUNE_COLOR);
-    private final JButton btnInvert = createButton("Invert [I]: OFF", BTN_COLOR);
-    private final JButton btnSave = createButton("Save 3D Scan (S)", BTN_SAVE_COLOR);
-    private final JButton btnOpenFolder = createButton("Scans Folder", BTN_COLOR);
-    private final JButton btnClear3D = createButton("Clear 3D Volume", BTN_CLEAR_COLOR);
+    private final JButton btnStyle = createButton("Style [Y]", BTN_COLOR);
+    private final JButton btnColormap = createButton("Map: Rainbow [V]", BTN_COLOR);
+    private final JButton btnTuneColors = createButton("Tune [K]", BTN_TUNE_COLOR);
+    private final JButton btnInvert = createButton("Invert [I]", BTN_COLOR);
+    private final JButton btnSave = createButton("Save (S)", BTN_SAVE_COLOR);
+    private final JButton btnOpenFolder = createButton("Folder", BTN_COLOR);
+    private final JButton btnClear3D = createButton("Clear (C)", BTN_CLEAR_COLOR);
 
-    private final JComboBox<String> cmbGrid = new JComboBox<>(new String[]{"50 x 50 (Fast)", "64 x 64 (Standard)", "100 x 100 (High-Res)"});
-    private final JComboBox<VolumeScanConfig.ScanPattern> cmbPattern = new JComboBox<>(VolumeScanConfig.ScanPattern.values());
+    private final JComboBox<String> cmbGrid = new JComboBox<>(new String[]{"100 x 41 (10x40mm Standard)", "50 x 50 (Fast)", "100 x 100 (High-Res)"});
     private final JComboBox<Volume3DPanel.CameraPreset> cmbViewPreset = new JComboBox<>(Volume3DPanel.CameraPreset.values());
 
-    private final JSlider sldGateMin = new JSlider(5, 30, 12);
+    private final JSlider sldGateMin = new JSlider(5, 30, 11);
     private final JSlider sldGateMax = new JSlider(8, 40, 16);
     private final JSlider sldExaggeration = new JSlider(5, 40, 18);
     private final JSlider sldContrast = new JSlider(5, 30, (int) (ScannerState.DEFAULT_CONTRAST * 10));
 
-    private final JLabel lblGateMin = new JLabel("Gate Min: 12 mm");
+    private final JLabel lblGateMin = new JLabel("Gate Min: 11 mm");
     private final JLabel lblGateMax = new JLabel("Gate Max: 16 mm");
     private final JLabel lblExag = new JLabel("Z-Exag: 1.8x");
     private final JLabel lblContrast = new JLabel(String.format("Contrast: %.1fx", ScannerState.DEFAULT_CONTRAST));
@@ -68,7 +68,6 @@ public final class VolumeControlPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
 
         ModernUi.styleComboBox(cmbGrid);
-        ModernUi.styleComboBox(cmbPattern);
         ModernUi.styleComboBox(cmbViewPreset);
 
         // Row 1: Primary Action Buttons & Color Tuning
@@ -84,7 +83,7 @@ public final class VolumeControlPanel extends JPanel {
         btnSave.setFont(btnSave.getFont().deriveFont(Font.BOLD));
         btnSave.setForeground(new Color(0x88, 0xFF, 0xCC));
 
-        btnColormap.setText("Colormap: " + state.getColormap().getLabel() + " [V]");
+        btnColormap.setText("Map: " + state.getColormap().getLabel() + " [V]");
 
         row1.add(btnSwitchMode);
         row1.add(btnRecord);
@@ -107,11 +106,6 @@ public final class VolumeControlPanel extends JPanel {
         cmbGrid.setFocusable(false);
         row2.add(cmbGrid);
 
-        JLabel lblPat = new JLabel("Pattern:");
-        lblPat.setForeground(TEXT_COLOR);
-        row2.add(lblPat);
-        cmbPattern.setFocusable(false);
-        row2.add(cmbPattern);
 
         JLabel lblView = new JLabel("Camera:");
         lblView.setForeground(TEXT_COLOR);
@@ -159,16 +153,25 @@ public final class VolumeControlPanel extends JPanel {
     private void setupListeners() {
         cmbGrid.addActionListener(e -> {
             int idx = cmbGrid.getSelectedIndex();
-            int size = (idx == 0) ? 50 : (idx == 1) ? 64 : 100;
-            state.getVolumeConfig().setGridX(size);
-            state.getVolumeConfig().setGridY(size);
+            if (idx == 0) {
+                state.getVolumeConfig().setGridX(100);
+                state.getVolumeConfig().setGridY(41);
+                state.getVolumeConfig().setStepSizeXMm(0.1);
+                state.getVolumeConfig().setStepSizeYMm(1.0);
+            } else if (idx == 1) {
+                state.getVolumeConfig().setGridX(50);
+                state.getVolumeConfig().setGridY(50);
+                state.getVolumeConfig().setStepSizeXMm(0.2);
+                state.getVolumeConfig().setStepSizeYMm(0.8);
+            } else {
+                state.getVolumeConfig().setGridX(100);
+                state.getVolumeConfig().setGridY(100);
+                state.getVolumeConfig().setStepSizeXMm(0.1);
+                state.getVolumeConfig().setStepSizeYMm(0.4);
+            }
             volumeBuffer.reallocate(state.getVolumeConfig());
         });
 
-        cmbPattern.addActionListener(e -> {
-            VolumeScanConfig.ScanPattern p = (VolumeScanConfig.ScanPattern) cmbPattern.getSelectedItem();
-            if (p != null) state.getVolumeConfig().setPattern(p);
-        });
 
         sldGateMin.addChangeListener(e -> {
             int minVal = sldGateMin.getValue();
@@ -209,11 +212,11 @@ public final class VolumeControlPanel extends JPanel {
         btnInvert.addActionListener(e -> state.toggleColormapInverted());
 
         state.addListener(s -> {
-            btnSwitchMode.setText(s.getViewMode() == ViewMode.MODE_2D ? "Switch to 3D Mode [TAB]" : "Switch to 2D Mode [TAB]");
+            btnSwitchMode.setText(s.getViewMode() == ViewMode.MODE_2D ? "3D Mode [TAB]" : "2D Mode [TAB]");
             btnRecord.setText(s.isRecording() ? "Pause (Space)" : "Resume (Space)");
-            btnStyle.setText("Style: " + s.getRender3DStyle().getLabel() + " [Y]");
-            btnColormap.setText("Colormap: " + s.getColormap().getLabel() + " [V]");
-            btnInvert.setText(s.isColormapInverted() ? "Invert [I]: ON" : "Invert [I]: OFF");
+            btnStyle.setText("Style [Y]");
+            btnColormap.setText("Map: " + s.getColormap().getLabel() + " [V]");
+            btnInvert.setText(s.isColormapInverted() ? "Invert: ON" : "Invert: OFF");
 
             int contrastInt = (int) Math.round(s.getContrast() * 10);
             if (sldContrast.getValue() != contrastInt) {
@@ -237,7 +240,9 @@ public final class VolumeControlPanel extends JPanel {
 
     private JButton createButton(String label, Color bg) {
         ModernUi.RoundedButton btn = new ModernUi.RoundedButton(label, bg, ModernUi.lighten(bg, 0.35f), 6);
-        btn.setPreferredSize(new Dimension(135, 28));
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 9));
+        btn.setPreferredSize(new Dimension(105, 25));
+        btn.setMargin(new Insets(2, 4, 2, 4));
         btn.setFocusable(false);
         return btn;
     }

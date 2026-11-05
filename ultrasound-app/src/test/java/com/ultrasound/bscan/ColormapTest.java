@@ -59,7 +59,7 @@ class ColormapTest {
 
         // Default gate is 12.0 - 16.0 mm (matched to 13-14mm targets)
         assertTrue(state.isColorRangeLockToGate());
-        assertEquals(12.0, state.getColorMinDepthMm(), 1e-3);
+        assertEquals(11.0, state.getColorMinDepthMm(), 1e-3);
         assertEquals(16.0, state.getColorMaxDepthMm(), 1e-3);
 
         // Decoupled custom range

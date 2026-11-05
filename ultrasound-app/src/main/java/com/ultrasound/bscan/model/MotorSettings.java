@@ -10,8 +10,8 @@ import com.ultrasound.bscan.io.FpgaCommandProtocol;
 public final class MotorSettings {
 
     // Default physical chamber dimensions (user adjustable in GUI)
-    private double chamberWidthX = 100.0;     // mm
-    private double chamberLengthY = 100.0;    // mm
+    private double chamberWidthX = 10.0;     // mm
+    private double chamberLengthY = 40.0;    // mm
     private double lineSpacingY = 1.0;        // mm per raster line
     private double stepDeltaXMm = 0.1;        // mm per position-triggered pulse on X axis (default 40 microsteps @ 400 stp/mm)
 
@@ -21,6 +21,7 @@ public final class MotorSettings {
 
     // Speeds
     private double speedMmPerSec = 10.0;      // mm/s default
+    private double previewSpeedMmPerSec = 25.0; // mm/s fast preview framing speed
 
     // Jogging step size in mm (0.0 means continuous)
     private double jogIncrementMm = 1.0;
@@ -37,7 +38,7 @@ public final class MotorSettings {
     }
 
     public synchronized void setChamberWidthX(double chamberWidthX) {
-        this.chamberWidthX = Math.max(5.0, chamberWidthX);
+        this.chamberWidthX = Math.max(1.0, chamberWidthX);
     }
 
     public synchronized double getChamberLengthY() {
@@ -45,7 +46,7 @@ public final class MotorSettings {
     }
 
     public synchronized void setChamberLengthY(double chamberLengthY) {
-        this.chamberLengthY = Math.max(5.0, chamberLengthY);
+        this.chamberLengthY = Math.max(1.0, chamberLengthY);
     }
 
     public synchronized double getLineSpacingY() {
@@ -86,6 +87,14 @@ public final class MotorSettings {
 
     public synchronized void setSpeedMmPerSec(double speedMmPerSec) {
         this.speedMmPerSec = Math.clamp(speedMmPerSec, 0.5, 100.0);
+    }
+
+    public synchronized double getPreviewSpeedMmPerSec() {
+        return previewSpeedMmPerSec;
+    }
+
+    public synchronized void setPreviewSpeedMmPerSec(double previewSpeedMmPerSec) {
+        this.previewSpeedMmPerSec = Math.clamp(previewSpeedMmPerSec, 1.0, 100.0);
     }
 
     public synchronized double getJogIncrementMm() {
