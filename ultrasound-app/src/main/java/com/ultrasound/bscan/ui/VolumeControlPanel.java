@@ -20,13 +20,14 @@ import java.awt.GridLayout;
 
 /**
  * Self-sufficient control bar for 2.5D / 3D volumetric scanning,
- * depth-gating, camera styles, and view mode switching.
+ * depth-gating, colormap customization, contrast/brightness, and view mode switching.
  */
 public final class VolumeControlPanel extends JPanel {
 
     private static final Color BG_COLOR = new Color(0x18, 0x18, 0x20);
     private static final Color BTN_MODE_COLOR = new Color(0x2E, 0x5B, 0x82);
     private static final Color BTN_COLOR = new Color(0x2B, 0x35, 0x40);
+    private static final Color BTN_TUNE_COLOR = new Color(0x30, 0x4B, 0x6E);
     private static final Color BTN_CLEAR_COLOR = new Color(0x60, 0x2A, 0x2A);
     private static final Color BTN_SAVE_COLOR = new Color(0x1B, 0x4D, 0x3E);
     private static final Color TEXT_COLOR = Color.WHITE;
@@ -38,6 +39,8 @@ public final class VolumeControlPanel extends JPanel {
     private final JButton btnRecord = createButton("Pause (Space)", BTN_COLOR);
     private final JButton btnStyle = createButton("Style: 3D Surface [Y]", BTN_COLOR);
     private final JButton btnColormap = createButton("Colormap (V)", BTN_COLOR);
+    private final JButton btnTuneColors = createButton("Tune Colors [K]", BTN_TUNE_COLOR);
+    private final JButton btnInvert = createButton("Invert [I]: OFF", BTN_COLOR);
     private final JButton btnSave = createButton("Save 3D Scan (S)", BTN_SAVE_COLOR);
     private final JButton btnOpenFolder = createButton("Scans Folder", BTN_COLOR);
     private final JButton btnClear3D = createButton("Clear 3D Volume", BTN_CLEAR_COLOR);
@@ -46,19 +49,21 @@ public final class VolumeControlPanel extends JPanel {
     private final JComboBox<VolumeScanConfig.ScanPattern> cmbPattern = new JComboBox<>(VolumeScanConfig.ScanPattern.values());
     private final JComboBox<Volume3DPanel.CameraPreset> cmbViewPreset = new JComboBox<>(Volume3DPanel.CameraPreset.values());
 
-    private final JSlider sldGateMin = new JSlider(0, 100, 15);
-    private final JSlider sldGateMax = new JSlider(10, 120, 60);
+    private final JSlider sldGateMin = new JSlider(5, 30, 12);
+    private final JSlider sldGateMax = new JSlider(8, 40, 16);
     private final JSlider sldExaggeration = new JSlider(5, 40, 18);
+    private final JSlider sldContrast = new JSlider(5, 30, (int) (ScannerState.DEFAULT_CONTRAST * 10));
 
-    private final JLabel lblGateMin = new JLabel("Gate Min: 15 mm");
-    private final JLabel lblGateMax = new JLabel("Gate Max: 60 mm");
+    private final JLabel lblGateMin = new JLabel("Gate Min: 12 mm");
+    private final JLabel lblGateMax = new JLabel("Gate Max: 16 mm");
     private final JLabel lblExag = new JLabel("Z-Exag: 1.8x");
+    private final JLabel lblContrast = new JLabel(String.format("Contrast: %.1fx", ScannerState.DEFAULT_CONTRAST));
 
     public VolumeControlPanel(ScannerState state, VolumeBuffer volumeBuffer) {
         this.state = state;
         this.volumeBuffer = volumeBuffer;
 
-        setLayout(new GridLayout(2, 1, 4, 4));
+        setLayout(new GridLayout(3, 1, 4, 4));
         setBackground(BG_COLOR);
         setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
 
@@ -66,25 +71,32 @@ public final class VolumeControlPanel extends JPanel {
         ModernUi.styleComboBox(cmbPattern);
         ModernUi.styleComboBox(cmbViewPreset);
 
-        // Row 1: Primary Action Buttons
-        JPanel row1 = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 2));
+        // Row 1: Primary Action Buttons & Color Tuning
+        JPanel row1 = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 2));
         row1.setBackground(BG_COLOR);
 
         btnSwitchMode.setFont(btnSwitchMode.getFont().deriveFont(Font.BOLD));
         btnSwitchMode.setForeground(new Color(0x88, 0xDD, 0xFF));
 
+        btnTuneColors.setFont(btnTuneColors.getFont().deriveFont(Font.BOLD));
+        btnTuneColors.setForeground(new Color(0xAA, 0xEE, 0xFF));
+
         btnSave.setFont(btnSave.getFont().deriveFont(Font.BOLD));
         btnSave.setForeground(new Color(0x88, 0xFF, 0xCC));
+
+        btnColormap.setText("Colormap: " + state.getColormap().getLabel() + " [V]");
 
         row1.add(btnSwitchMode);
         row1.add(btnRecord);
         row1.add(btnStyle);
         row1.add(btnColormap);
+        row1.add(btnTuneColors);
+        row1.add(btnInvert);
         row1.add(btnSave);
         row1.add(btnOpenFolder);
         row1.add(btnClear3D);
 
-        // Row 2: Grid Configuration, Depth Gate Sliders & Z-Exaggeration
+        // Row 2: Grid Configuration, Camera Presets & Z-Exaggeration
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 2));
         row2.setBackground(BG_COLOR);
 
@@ -107,19 +119,32 @@ public final class VolumeControlPanel extends JPanel {
         cmbViewPreset.setFocusable(false);
         row2.add(cmbViewPreset);
 
-        setupSlider(sldGateMin, lblGateMin);
-        setupSlider(sldGateMax, lblGateMax);
         setupSlider(sldExaggeration, lblExag);
-
-        row2.add(lblGateMin);
-        row2.add(sldGateMin);
-        row2.add(lblGateMax);
-        row2.add(sldGateMax);
+        sldExaggeration.setPreferredSize(new Dimension(100, 24));
         row2.add(lblExag);
         row2.add(sldExaggeration);
 
+        // Row 3: Live Depth Gate & Contrast / Brightness Sliders
+        JPanel row3 = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 2));
+        row3.setBackground(BG_COLOR);
+
+        setupSlider(sldGateMin, lblGateMin);
+        setupSlider(sldGateMax, lblGateMax);
+        setupSlider(sldContrast, lblContrast);
+        sldContrast.setPreferredSize(new Dimension(150, 24));
+        lblContrast.setForeground(new Color(0x88, 0xEE, 0xFF));
+        lblContrast.setFont(new Font("SansSerif", Font.BOLD, 11));
+
+        row3.add(lblGateMin);
+        row3.add(sldGateMin);
+        row3.add(lblGateMax);
+        row3.add(sldGateMax);
+        row3.add(lblContrast);
+        row3.add(sldContrast);
+
         add(row1);
         add(row2);
+        add(row3);
 
         setupListeners();
     }
@@ -151,6 +176,9 @@ public final class VolumeControlPanel extends JPanel {
                 sldGateMax.setValue(minVal + 1);
             }
             state.getVolumeConfig().setGateMinDepthMm(minVal);
+            if (state.isColorRangeLockToGate()) {
+                state.setColorMinDepthMm(minVal);
+            }
             lblGateMin.setText(String.format("Gate Min: %d mm", minVal));
         });
 
@@ -160,6 +188,9 @@ public final class VolumeControlPanel extends JPanel {
                 sldGateMin.setValue(maxVal - 1);
             }
             state.getVolumeConfig().setGateMaxDepthMm(maxVal);
+            if (state.isColorRangeLockToGate()) {
+                state.setColorMaxDepthMm(maxVal);
+            }
             lblGateMax.setText(String.format("Gate Max: %d mm", maxVal));
         });
 
@@ -169,17 +200,44 @@ public final class VolumeControlPanel extends JPanel {
             lblExag.setText(String.format("Z-Exag: %.1fx", exag));
         });
 
+        sldContrast.addChangeListener(e -> {
+            double contrastVal = sldContrast.getValue() / 10.0;
+            state.setContrast(contrastVal);
+            lblContrast.setText(String.format("Contrast: %.1fx", contrastVal));
+        });
+
+        btnInvert.addActionListener(e -> state.toggleColormapInverted());
+
         state.addListener(s -> {
             btnSwitchMode.setText(s.getViewMode() == ViewMode.MODE_2D ? "Switch to 3D Mode [TAB]" : "Switch to 2D Mode [TAB]");
             btnRecord.setText(s.isRecording() ? "Pause (Space)" : "Resume (Space)");
             btnStyle.setText("Style: " + s.getRender3DStyle().getLabel() + " [Y]");
             btnColormap.setText("Colormap: " + s.getColormap().getLabel() + " [V]");
+            btnInvert.setText(s.isColormapInverted() ? "Invert [I]: ON" : "Invert [I]: OFF");
+
+            int contrastInt = (int) Math.round(s.getContrast() * 10);
+            if (sldContrast.getValue() != contrastInt) {
+                sldContrast.setValue(contrastInt);
+                lblContrast.setText(String.format("Contrast: %.1fx", s.getContrast()));
+            }
+
+            int gateMinInt = (int) Math.round(s.getVolumeConfig().getGateMinDepthMm());
+            if (sldGateMin.getValue() != gateMinInt) {
+                sldGateMin.setValue(gateMinInt);
+                lblGateMin.setText(String.format("Gate Min: %d mm", gateMinInt));
+            }
+
+            int gateMaxInt = (int) Math.round(s.getVolumeConfig().getGateMaxDepthMm());
+            if (sldGateMax.getValue() != gateMaxInt) {
+                sldGateMax.setValue(gateMaxInt);
+                lblGateMax.setText(String.format("Gate Max: %d mm", gateMaxInt));
+            }
         });
     }
 
     private JButton createButton(String label, Color bg) {
         ModernUi.RoundedButton btn = new ModernUi.RoundedButton(label, bg, ModernUi.lighten(bg, 0.35f), 6);
-        btn.setPreferredSize(new Dimension(150, 28));
+        btn.setPreferredSize(new Dimension(135, 28));
         btn.setFocusable(false);
         return btn;
     }
@@ -188,6 +246,7 @@ public final class VolumeControlPanel extends JPanel {
     public void onRecordClicked(Runnable r) { btnRecord.addActionListener(e -> r.run()); }
     public void onStyleClicked(Runnable r) { btnStyle.addActionListener(e -> r.run()); }
     public void onColormapClicked(Runnable r) { btnColormap.addActionListener(e -> r.run()); }
+    public void onTuneColorsClicked(Runnable r) { btnTuneColors.addActionListener(e -> r.run()); }
     public void onSaveClicked(Runnable r) { btnSave.addActionListener(e -> r.run()); }
     public void onOpenFolderClicked(Runnable r) { btnOpenFolder.addActionListener(e -> r.run()); }
     public void onClear3DClicked(Runnable r) { btnClear3D.addActionListener(e -> r.run()); }
@@ -201,5 +260,19 @@ public final class VolumeControlPanel extends JPanel {
 
     public void setCameraPresetSelection(Volume3DPanel.CameraPreset preset) {
         cmbViewPreset.setSelectedItem(preset);
+    }
+
+    public void setGateMinSelection(int minVal) {
+        if (sldGateMin.getValue() != minVal) {
+            sldGateMin.setValue(minVal);
+            lblGateMin.setText(String.format("Gate Min: %d mm", minVal));
+        }
+    }
+
+    public void setGateMaxSelection(int maxVal) {
+        if (sldGateMax.getValue() != maxVal) {
+            sldGateMax.setValue(maxVal);
+            lblGateMax.setText(String.format("Gate Max: %d mm", maxVal));
+        }
     }
 }

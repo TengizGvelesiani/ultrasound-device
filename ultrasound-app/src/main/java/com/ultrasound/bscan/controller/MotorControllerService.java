@@ -120,6 +120,33 @@ public final class MotorControllerService {
     }
 
     /**
+     * Called directly upon FPGA hardware frame metadata indicating scan completion.
+     */
+    public synchronized void notifyHardwareScanComplete() {
+        if (chamberScanning.compareAndSet(true, false)) {
+            if (activeScanFuture != null && !activeScanFuture.isDone()) {
+                activeScanFuture.cancel(true);
+            }
+            // Send explicit halt to ensure FPGA coils are powered down and in M_IDLE
+            sendPacket(FpgaCommandProtocol.buildHaltPacket());
+
+            int totalLines = settings.getTotalScanLines();
+            notifyProgress(totalLines, totalLines, 100.0);
+            notifyPosition();
+            notifyStateChanged(false, "Chamber Scan Completed (Hardware Synchronized)!");
+        }
+    }
+
+    /**
+     * Updates progress based on hardware raster lines acquired.
+     */
+    public void updateHardwareProgress(int currentLine, int totalLines, double percent) {
+        if (chamberScanning.get()) {
+            notifyProgress(currentLine, totalLines, percent);
+        }
+    }
+
+    /**
      * Jogs the top X-axis stepper motor.
      *
      * @param positive   true for +X, false for -X
@@ -196,7 +223,7 @@ public final class MotorControllerService {
 
     /**
      * One-click trigger for full XY chamber raster scan.
-     * Transmits the hardware command to the FPGA and manages supervisory progress tracking.
+     * Transmits the hardware command to the FPGA with user-selected start directions.
      */
     public synchronized void triggerChamberScan() {
         if (chamberScanning.get()) {
@@ -207,6 +234,7 @@ public final class MotorControllerService {
         final double widthX = settings.getChamberWidthX();
         final double lengthY = settings.getChamberLengthY();
         final double lineSpacing = settings.getLineSpacingY();
+        final double stepDeltaX = settings.getStepDeltaXMm();
         final double speed = settings.getSpeedMmPerSec();
 
         final long totalXSteps = settings.mmToStepsX(widthX);
@@ -215,16 +243,26 @@ public final class MotorControllerService {
         final long halfPeriod = settings.calculateHalfPeriodCycles();
         final int totalLines = settings.getTotalScanLines();
 
+        final boolean startPosX = settings.isStartPositiveX();
+        final boolean advancePosY = settings.isAdvancePositiveY();
+
         // 1. Synchronize speed configuration with FPGA
         updateSpeed();
 
-        // 2. Transmit autonomous chamber scan packet (Position-Triggered Pulser every 0.1 mm)
-        final int deltaXSteps = (int) Math.clamp(Math.round(settings.getStepsPerMmX() * 0.1), 1, 255);
+        // Brief 15ms pause to ensure FPGA UART RX latches CMD_SET_SPEED before CMD_CHAMBER_SCAN
+        try {
+            Thread.sleep(15);
+        } catch (InterruptedException ignored) {}
+
+        // 2. Transmit autonomous chamber scan packet (Position-Triggered Pulser)
+        final int deltaXSteps = (int) Math.clamp(Math.round(settings.getStepsPerMmX() * stepDeltaX), 1, 255);
         byte[] packet = FpgaCommandProtocol.buildChamberScanPacket(
                 totalXSteps,
                 totalYSteps,
                 deltaYSteps,
                 deltaXSteps,
+                startPosX,
+                advancePosY,
                 halfPeriod
         );
 
@@ -235,12 +273,13 @@ public final class MotorControllerService {
         }
 
         chamberScanning.set(true);
-        notifyStateChanged(true, "Autonomous Chamber Scan Started (" + widthX + " x " + lengthY + " mm @ " + speed + " mm/s).");
+        String dirDesc = (startPosX ? "+X" : "-X") + ", " + (advancePosY ? "+Y" : "-Y");
+        notifyStateChanged(true, "Autonomous Chamber Scan Started (" + widthX + " x " + lengthY + " mm @ " + speed + " mm/s, Start: " + dirDesc + ").");
 
-        activeScanFuture = scanExecutor.submit(() -> runChamberScanSupervisor(widthX, lengthY, lineSpacing, speed, totalLines));
+        activeScanFuture = scanExecutor.submit(() -> runChamberScanSupervisor(widthX, lengthY, lineSpacing, speed, totalLines, startPosX));
     }
 
-    private void runChamberScanSupervisor(double widthX, double lengthY, double lineSpacing, double speed, int totalLines) {
+    private void runChamberScanSupervisor(double widthX, double lengthY, double lineSpacing, double speed, int totalLines, boolean initialPositiveX) {
         // Approximate time per X sweep
         double lineTimeSec = widthX / Math.max(0.5, speed);
         long lineTimeMs = Math.round(lineTimeSec * 1000.0);
@@ -251,7 +290,7 @@ public final class MotorControllerService {
                 long lineStart = System.currentTimeMillis();
 
                 // Track position during X sweep
-                boolean forward = (line % 2 != 0);
+                boolean forward = (line % 2 != 0) ? initialPositiveX : !initialPositiveX;
                 double targetY = (line - 1) * lineSpacing;
                 currentStepY = settings.mmToStepsY(targetY);
 
@@ -271,19 +310,40 @@ public final class MotorControllerService {
                 if (!chamberScanning.get()) {
                     break;
                 }
+
+                // Wait for physical Y-step advance on the gantry
+                if (line < totalLines && chamberScanning.get()) {
+                    long stepYTimeMs = Math.max(50, Math.round((lineSpacing / Math.max(0.5, speed)) * 1000.0));
+                    long yStart = System.currentTimeMillis();
+                    while (System.currentTimeMillis() - yStart < stepYTimeMs && chamberScanning.get()) {
+                        Thread.sleep(50);
+                    }
+                }
             }
 
-            if (chamberScanning.get()) {
+            // Wait for hardware scan completion signal from FPGA frame metadata
+            long waitStart = System.currentTimeMillis();
+            long maxWaitMs = 25_000; // 25s safety watchdog window
+            while (chamberScanning.get() && (System.currentTimeMillis() - waitStart < maxWaitMs)) {
+                Thread.sleep(150);
+            }
+
+            if (chamberScanning.compareAndSet(true, false)) {
+                // Safety watchdog fired: send halt command to guarantee physical motors park
+                sendPacket(FpgaCommandProtocol.buildHaltPacket());
                 currentStepX = 0;
                 currentStepY = settings.mmToStepsY(lengthY);
                 notifyProgress(totalLines, totalLines, 100.0);
                 notifyPosition();
-                notifyStateChanged(false, "Chamber Scan Completed Successfully!");
+                notifyStateChanged(false, "Chamber Scan Finished (Gantry Parked).");
             }
         } catch (InterruptedException ignored) {
+            sendPacket(FpgaCommandProtocol.buildHaltPacket());
             notifyStateChanged(false, "Chamber scan aborted.");
         } finally {
-            chamberScanning.set(false);
+            if (chamberScanning.compareAndSet(true, false)) {
+                sendPacket(FpgaCommandProtocol.buildHaltPacket());
+            }
         }
     }
 

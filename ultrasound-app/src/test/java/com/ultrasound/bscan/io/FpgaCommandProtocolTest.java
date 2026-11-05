@@ -103,6 +103,36 @@ class FpgaCommandProtocolTest {
     }
 
     @Test
+    @DisplayName("Chamber scan packet correctly encodes user-selected initial directions in Byte 4")
+    void testChamberScanDirections() {
+        long totalX = 40000L;
+        long totalY = 40000L;
+        int deltaY = 400;
+        int deltaX = 40;
+        long halfPeriod = 25000L;
+
+        // +X and +Y -> 0x03
+        byte[] p1 = FpgaCommandProtocol.buildChamberScanPacket(totalX, totalY, deltaY, deltaX, true, true, halfPeriod);
+        assertTrue(FpgaCommandProtocol.isValidPacket(p1));
+        assertEquals(0x03, p1[4]);
+
+        // +X and -Y -> 0x01
+        byte[] p2 = FpgaCommandProtocol.buildChamberScanPacket(totalX, totalY, deltaY, deltaX, true, false, halfPeriod);
+        assertTrue(FpgaCommandProtocol.isValidPacket(p2));
+        assertEquals(0x01, p2[4]);
+
+        // -X and +Y -> 0x02
+        byte[] p3 = FpgaCommandProtocol.buildChamberScanPacket(totalX, totalY, deltaY, deltaX, false, true, halfPeriod);
+        assertTrue(FpgaCommandProtocol.isValidPacket(p3));
+        assertEquals(0x02, p3[4]);
+
+        // -X and -Y -> 0x00
+        byte[] p4 = FpgaCommandProtocol.buildChamberScanPacket(totalX, totalY, deltaY, deltaX, false, false, halfPeriod);
+        assertTrue(FpgaCommandProtocol.isValidPacket(p4));
+        assertEquals(0x00, p4[4]);
+    }
+
+    @Test
     @DisplayName("Corrupted packet or invalid checksum is rejected")
     void testCorruptedPacket() {
         byte[] packet = FpgaCommandProtocol.buildHaltPacket();

@@ -10,8 +10,8 @@ import java.util.Objects;
  *   <li>Byte 0:  0xA5 (SYNC 1)</li>
  *   <li>Byte 1:  0x5A (SYNC 2)</li>
  *   <li>Byte 2:  CMD  (HALT=0x00, JOG=0x01, CHAMBER_SCAN=0x02, SET_SPEED=0x03, ZERO=0x04)</li>
- *   <li>Byte 3:  AXIS (NONE=0x00, X=0x01, Y=0x02 [Dual Y1+Y2 Locked])</li>
- *   <li>Byte 4:  DIR  (NEGATIVE=0x00, POSITIVE=0x01)</li>
+ *   <li>Byte 3:  AXIS (NONE=0x00, X=0x01, Y=0x02 [Dual Y1+Y2 Locked], or Delta X microsteps)</li>
+ *   <li>Byte 4:  DIR  (For JOG: Bit 0 = DIR; For CHAMBER_SCAN: Bit 0 = Start X Dir, Bit 1 = Advance Y Dir)</li>
  *   <li>Bytes 5..8:   PARAM 1 (32-bit unsigned Big-Endian): Jog Steps / Chamber X Steps</li>
  *   <li>Bytes 9..12:  PARAM 2 (32-bit unsigned Big-Endian): Speed Half-Period / Chamber Y Steps</li>
  *   <li>Bytes 13..14: PARAM 3 (16-bit unsigned Big-Endian): Chamber Delta Y Steps</li>
@@ -76,7 +76,7 @@ public final class FpgaCommandProtocol {
      * @param halfPeriodCycles clock cycles per step half-period
      */
     public static byte[] buildChamberScanPacket(long totalXSteps, long totalYSteps, int deltaYSteps, long halfPeriodCycles) {
-        return buildChamberScanPacket(totalXSteps, totalYSteps, deltaYSteps, 0, halfPeriodCycles);
+        return buildChamberScanPacket(totalXSteps, totalYSteps, deltaYSteps, 0, true, true, halfPeriodCycles);
     }
 
     /**
@@ -89,8 +89,26 @@ public final class FpgaCommandProtocol {
      * @param halfPeriodCycles clock cycles per step half-period
      */
     public static byte[] buildChamberScanPacket(long totalXSteps, long totalYSteps, int deltaYSteps, int deltaXSteps, long halfPeriodCycles) {
+        return buildChamberScanPacket(totalXSteps, totalYSteps, deltaYSteps, deltaXSteps, true, true, halfPeriodCycles);
+    }
+
+    /**
+     * Builds a one-click autonomous full chamber raster scan packet with explicit position-trigger step spacing
+     * and configurable initial raster start directions.
+     *
+     * @param totalXSteps      total microsteps across chamber width (X)
+     * @param totalYSteps      total microsteps along chamber length (Y)
+     * @param deltaYSteps      microsteps to advance Y after each X sweep
+     * @param deltaXSteps      microsteps per position-triggered A-scan pulse (e.g. 40 microsteps = 0.1 mm)
+     * @param startPositiveX   initial X sweep direction: true for +X (Right), false for -X (Left)
+     * @param advancePositiveY Y advance direction: true for +Y (Forward), false for -Y (Backward)
+     * @param halfPeriodCycles clock cycles per step half-period
+     */
+    public static byte[] buildChamberScanPacket(long totalXSteps, long totalYSteps, int deltaYSteps, int deltaXSteps,
+                                                boolean startPositiveX, boolean advancePositiveY, long halfPeriodCycles) {
         byte axisByte = deltaXSteps > 0 ? (byte) Math.clamp(deltaXSteps, 1, 255) : AXIS_NONE;
-        return buildPacket(CMD_CHAMBER_SCAN, axisByte, DIR_POSITIVE, totalXSteps, totalYSteps, deltaYSteps);
+        byte dirByte = (byte) ((startPositiveX ? 0x01 : 0x00) | (advancePositiveY ? 0x02 : 0x00));
+        return buildPacket(CMD_CHAMBER_SCAN, axisByte, dirByte, totalXSteps, totalYSteps, deltaYSteps);
     }
 
     /**

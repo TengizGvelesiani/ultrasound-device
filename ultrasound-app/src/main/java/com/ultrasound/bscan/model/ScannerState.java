@@ -23,7 +23,12 @@ public final class ScannerState {
     private double contrast = DEFAULT_CONTRAST;
     private double squelch = DEFAULT_SQUELCH;
     private boolean zoomNear = false;
-    private ColormapType colormap = ColormapType.BONE;
+    private ColormapType colormap = ColormapType.TURBO;
+    private boolean colormapInverted = false;
+    private double colormapGamma = 1.0;
+    private double colorMinDepthMm = 12.0;
+    private double colorMaxDepthMm = 16.0;
+    private boolean colorRangeLockToGate = true;
 
     private volatile AScanFrame latestFrame = null;
     private volatile long totalFramesReceived = 0;
@@ -72,7 +77,7 @@ public final class ScannerState {
     }
 
     public void toggleViewMode() {
-        setViewMode(this.viewMode.toggle());
+        setViewMode(this.viewMode == ViewMode.MODE_2D ? ViewMode.MODE_3D : ViewMode.MODE_2D);
     }
 
     public VolumeScanConfig getVolumeConfig() {
@@ -104,7 +109,7 @@ public final class ScannerState {
     }
 
     public void setDepthExaggeration(double depthExaggeration) {
-        double clamped = Math.clamp(depthExaggeration, 0.5, 5.0);
+        double clamped = Math.clamp(depthExaggeration, 0.5, 4.0);
         if (Math.abs(this.depthExaggeration - clamped) > 1e-4) {
             this.depthExaggeration = clamped;
             notifyListeners();
@@ -143,7 +148,7 @@ public final class ScannerState {
     }
 
     public void setSquelch(double squelch) {
-        double clamped = Math.clamp(squelch, 0.0, 150.0);
+        double clamped = Math.clamp(squelch, 0.0, 200.0);
         if (Math.abs(this.squelch - clamped) > 1e-4) {
             this.squelch = clamped;
             notifyListeners();
@@ -178,6 +183,72 @@ public final class ScannerState {
 
     public void cycleColormap() {
         setColormap(this.colormap.next());
+    }
+
+    public boolean isColormapInverted() {
+        return colormapInverted;
+    }
+
+    public void setColormapInverted(boolean colormapInverted) {
+        if (this.colormapInverted != colormapInverted) {
+            this.colormapInverted = colormapInverted;
+            notifyListeners();
+        }
+    }
+
+    public void toggleColormapInverted() {
+        setColormapInverted(!this.colormapInverted);
+    }
+
+    public double getColormapGamma() {
+        return colormapGamma;
+    }
+
+    public void setColormapGamma(double gamma) {
+        double clamped = Math.clamp(gamma, 0.2, 3.0);
+        if (Math.abs(this.colormapGamma - clamped) > 1e-4) {
+            this.colormapGamma = clamped;
+            notifyListeners();
+        }
+    }
+
+    public double getColorMinDepthMm() {
+        return colorRangeLockToGate ? volumeConfig.getGateMinDepthMm() : colorMinDepthMm;
+    }
+
+    public void setColorMinDepthMm(double minMm) {
+        this.colorMinDepthMm = Math.max(0.0, minMm);
+        if (this.colorMaxDepthMm <= this.colorMinDepthMm) {
+            this.colorMaxDepthMm = this.colorMinDepthMm + 0.5;
+        }
+        notifyListeners();
+    }
+
+    public double getColorMaxDepthMm() {
+        return colorRangeLockToGate ? volumeConfig.getGateMaxDepthMm() : colorMaxDepthMm;
+    }
+
+    public void setColorMaxDepthMm(double maxMm) {
+        this.colorMaxDepthMm = Math.max(0.5, maxMm);
+        if (this.colorMaxDepthMm <= this.colorMinDepthMm) {
+            this.colorMinDepthMm = Math.max(0.0, this.colorMaxDepthMm - 0.5);
+        }
+        notifyListeners();
+    }
+
+    public boolean isColorRangeLockToGate() {
+        return colorRangeLockToGate;
+    }
+
+    public void setColorRangeLockToGate(boolean lock) {
+        if (this.colorRangeLockToGate != lock) {
+            this.colorRangeLockToGate = lock;
+            if (lock) {
+                this.colorMinDepthMm = volumeConfig.getGateMinDepthMm();
+                this.colorMaxDepthMm = volumeConfig.getGateMaxDepthMm();
+            }
+            notifyListeners();
+        }
     }
 
     public AScanFrame getLatestFrame() {

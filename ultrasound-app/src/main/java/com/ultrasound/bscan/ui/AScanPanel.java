@@ -112,6 +112,39 @@ public final class AScanPanel extends JPanel {
         g2.setColor(TEXT_COLOR);
         g2.drawString("Depth (mm)", marginLeft + plotW / 2 - 25, h - 5);
 
+        // Transmit Pulse Blanking & Active Echo Gate Overlays
+        com.ultrasound.bscan.model.VolumeScanConfig vc = state.getVolumeConfig();
+        double gateMin = vc != null ? vc.getGateMinDepthMm() : 10.0;
+        double gateMax = vc != null ? vc.getGateMaxDepthMm() : 22.0;
+
+        int gateX1 = marginLeft + (int) Math.clamp((gateMin / maxDisplayDepth) * plotW, 0, plotW);
+        int gateX2 = marginLeft + (int) Math.clamp((gateMax / maxDisplayDepth) * plotW, 0, plotW);
+
+        // 1. Shaded Transmit Pulse / Ring-Down Dead-Zone (0 to gateMin)
+        if (gateX1 > marginLeft) {
+            g2.setColor(new Color(0x35, 0x18, 0x18, 80));
+            g2.fillRect(marginLeft, marginTop, gateX1 - marginLeft, plotH);
+            g2.setColor(new Color(0xFF, 0x66, 0x66, 160));
+            g2.setFont(new Font("SansSerif", Font.BOLD, 9));
+            g2.drawString("TX Pulse Blanking", marginLeft + 6, marginTop + 13);
+        }
+
+        // 2. Active Depth Gate [gateMin .. gateMax]
+        if (gateX2 > gateX1) {
+            g2.setColor(new Color(0x00, 0x48, 0x60, 40));
+            g2.fillRect(gateX1, marginTop, gateX2 - gateX1, plotH);
+
+            Stroke gateStroke = new BasicStroke(1.2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[]{4.0f, 3.0f}, 0.0f);
+            g2.setStroke(gateStroke);
+            g2.setColor(new Color(0x00, 0xEE, 0xFF, 180));
+            g2.drawLine(gateX1, marginTop, gateX1, marginTop + plotH);
+            g2.drawLine(gateX2, marginTop, gateX2, marginTop + plotH);
+
+            g2.setFont(new Font("SansSerif", Font.BOLD, 9));
+            g2.setColor(new Color(0x00, 0xEE, 0xFF));
+            g2.drawString(String.format("Echo Gate [%.1f - %.1f mm]", gateMin, gateMax), gateX1 + 6, marginTop + 13);
+        }
+
         // Draw Squelch Threshold Line
         double squelch = state.getSquelch();
         int squelchY = marginTop + plotH - (int) (Math.clamp(squelch / 255.0, 0.0, 1.0) * plotH);

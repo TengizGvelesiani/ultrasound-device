@@ -60,6 +60,52 @@ class SignalProcessorTest {
     }
 
     @Test
+    void testPeakDetectionWithinGate() {
+        float[] signal = new float[1024];
+
+        // Large artifact outside gate at 3.0 mm (~sample 20)
+        signal[20] = 250.0f;
+
+        // Container bottom reflection outside gate at 35.0 mm (~sample 236)
+        signal[236] = 240.0f;
+
+        // True target echo inside gate [5.0, 25.0] mm at 13.5 mm (~sample 91)
+        int sample13mm = config.getSampleIndexForDepth(13.5);
+        signal[sample13mm] = 185.0f;
+
+        // Gated detection strictly ignores both near ringdown (<5mm) and tank bottom (>25mm)
+        PeakEcho peak = processor.detectPeakWithinGate(signal, config, 5.0, 25.0, 20.0);
+
+        assertTrue(peak.detected());
+        assertEquals(sample13mm, peak.sampleIndex());
+        assertEquals(185.0f, peak.amplitude(), 1e-4);
+        assertEquals(config.getDepthForSample(sample13mm), peak.depthMm(), 1e-4);
+    }
+
+    @Test
+    void testTransmitWaveSentFromTransducerIsIgnored() {
+        float[] signal = new float[1024];
+
+        // Transmit wave sent directly from transducer (amplitude saturated at 255)
+        for (int i = 0; i < 45; i++) {
+            signal[i] = 255.0f - (i * 2.0f);
+        }
+
+        // True echo from target reflection at 13.5 mm (sample 91)
+        int targetIdx = config.getSampleIndexForDepth(13.5);
+        signal[targetIdx - 1] = 120.0f;
+        signal[targetIdx]     = 180.0f; // local crest
+        signal[targetIdx + 1] = 130.0f;
+
+        // Even if gateMin is set to 0.0 or 5.0, transmit pulse at start MUST be ignored
+        PeakEcho peak = processor.detectPeakWithinGate(signal, config, 0.0, 25.0, 20.0);
+
+        assertTrue(peak.detected(), "Target echo at 13.5mm should be detected");
+        assertEquals(targetIdx, peak.sampleIndex(), "Should point to 13.5mm echo, NOT the transmit pulse");
+        assertEquals(180.0f, peak.amplitude(), 1e-4);
+    }
+
+    @Test
     void testPeakDetectionNoneWhenBelowThreshold() {
         float[] signal = new float[1024];
         signal[200] = 15.0f; // below threshold 20.0

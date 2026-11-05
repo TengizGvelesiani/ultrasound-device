@@ -30,6 +30,12 @@ public interface SignalProcessor {
     PeakEcho detectPeak(float[] signal, ScanConfig config, int blankingSamples, double threshold);
 
     /**
+     * Detects the dominant acoustic reflection peak strictly within the configured depth gate [gateMinMm, gateMaxMm].
+     * Ignores ring-down before gateMinMm and container bottom/reverberations beyond gateMaxMm.
+     */
+    PeakEcho detectPeakWithinGate(float[] signal, ScanConfig config, double gateMinMm, double gateMaxMm, double threshold);
+
+    /**
      * Batch-reprocesses an entire 2D sweep buffer from raw byte storage into
      * float display storage (e.g. when sliders are moved while paused).
      */

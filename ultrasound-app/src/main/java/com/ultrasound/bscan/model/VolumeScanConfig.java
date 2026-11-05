@@ -28,7 +28,7 @@ public final class VolumeScanConfig {
     private double gateMaxDepthMm;
 
     public VolumeScanConfig() {
-        this(DEFAULT_GRID_X, DEFAULT_GRID_Y, DEFAULT_STEP_X_MM, DEFAULT_STEP_Y_MM, ScanPattern.SNAKE, 15.0, 60.0);
+        this(DEFAULT_GRID_X, DEFAULT_GRID_Y, DEFAULT_STEP_X_MM, DEFAULT_STEP_Y_MM, ScanPattern.SNAKE, 12.0, 16.0);
     }
 
     public VolumeScanConfig(int gridX, int gridY, double stepSizeXMm, double stepSizeYMm,

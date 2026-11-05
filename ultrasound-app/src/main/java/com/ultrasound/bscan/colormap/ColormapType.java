@@ -1,6 +1,11 @@
 package com.ultrasound.bscan.colormap;
 
 public enum ColormapType {
+    TURBO("Turbo (High Contrast)"),
+    AMBER("Amber (Gold 3D)"),
+    JET("Jet (Rainbow)"),
+    VIRIDIS("Viridis (Perceptual)"),
+    COOL_WARM("Cool-Warm (Diverging)"),
     BONE("Bone (Medical)"),
     HOT("Hot"),
     INFERNO("Inferno"),

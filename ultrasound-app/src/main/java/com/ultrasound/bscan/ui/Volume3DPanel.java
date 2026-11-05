@@ -222,40 +222,20 @@ public final class Volume3DPanel extends JPanel {
             gateMax = gateMin + 5.0;
         }
 
-        // Dynamic depth framing: tightly frame the box to the measured specimen relief
-        double minMeasuredZ = Double.MAX_VALUE;
-        double maxMeasuredZ = -Double.MAX_VALUE;
-        int measuredCount = 0;
-
-        volumeBuffer.getLock().readLock().lock();
-        try {
-            float[] hMap = volumeBuffer.getHeightMapUnsafe();
-            boolean[] mMap = volumeBuffer.getMeasuredMapUnsafe();
-            int total = volumeBuffer.getGridX() * volumeBuffer.getGridY();
-            for (int i = 0; i < total; i++) {
-                if (mMap[i] && hMap[i] > 0.0f) {
-                    float z = hMap[i];
-                    if (z < minMeasuredZ) minMeasuredZ = z;
-                    if (z > maxMeasuredZ) maxMeasuredZ = z;
-                    measuredCount++;
-                }
-            }
-        } finally {
-            volumeBuffer.getLock().readLock().unlock();
-        }
-
+        // Depth framing: directly user-configured through Gate or custom Colormap Window
         double zBoxMin;
         double zBoxMax;
-        if (measuredCount > 10 && maxMeasuredZ > minMeasuredZ) {
-            double span = maxMeasuredZ - minMeasuredZ;
-            double pad = Math.max(1.0, span * 0.15);
-            zBoxMin = Math.max(0.0, minMeasuredZ - pad);
-            zBoxMax = maxMeasuredZ + pad;
+        if (state.isColorRangeLockToGate()) {
+            zBoxMin = gateMin;
+            zBoxMax = gateMax;
         } else {
-            zBoxMin = Math.max(0.0, gateMin - 2.0);
-            zBoxMax = gateMax + 2.0;
+            zBoxMin = state.getColorMinDepthMm();
+            zBoxMax = state.getColorMaxDepthMm();
         }
-        double zBoxSpan = Math.max(2.0, zBoxMax - zBoxMin);
+        if (zBoxMax <= zBoxMin) {
+            zBoxMax = zBoxMin + 1.0;
+        }
+        double zBoxSpan = Math.max(0.5, zBoxMax - zBoxMin);
         double zCenter = (zBoxMin + zBoxMax) * 0.5;
         double depthExaggeration = state.getDepthExaggeration();
 
@@ -443,19 +423,24 @@ public final class Volume3DPanel extends JPanel {
         lx /= lLen; ly /= lLen; lz /= lLen;
 
         double zSpan = Math.max(1.0, zBoxMax - zBoxMin);
-        List<RenderQuad> quadList = new ArrayList<>((gridX - 1) * (gridY - 1));
+        int stepX = Math.max(1, (gridX + 119) / 120);
+        int stepY = Math.max(1, (gridY + 119) / 120);
+        int estQuads = ((gridX - 1 + stepX - 1) / stepX) * ((gridY - 1 + stepY - 1) / stepY);
+        List<RenderQuad> quadList = new ArrayList<>(Math.max(16, estQuads));
 
         volumeBuffer.getLock().readLock().lock();
         try {
             float[] heightMap = volumeBuffer.getHeightMapUnsafe();
             boolean[] measured = volumeBuffer.getMeasuredMapUnsafe();
 
-            for (int y = 0; y < gridY - 1; y++) {
-                for (int x = 0; x < gridX - 1; x++) {
+            for (int y = 0; y < gridY - 1; y += stepY) {
+                int yNext = Math.min(y + stepY, gridY - 1);
+                for (int x = 0; x < gridX - 1; x += stepX) {
+                    int xNext = Math.min(x + stepX, gridX - 1);
                     int i00 = y * gridX + x;
-                    int i10 = y * gridX + (x + 1);
-                    int i11 = (y + 1) * gridX + (x + 1);
-                    int i01 = (y + 1) * gridX + x;
+                    int i10 = y * gridX + xNext;
+                    int i11 = yNext * gridX + xNext;
+                    int i01 = yNext * gridX + x;
 
                     int mCount = (measured[i00] ? 1 : 0) + (measured[i10] ? 1 : 0) +
                                  (measured[i11] ? 1 : 0) + (measured[i01] ? 1 : 0);
@@ -474,33 +459,62 @@ public final class Volume3DPanel extends JPanel {
                     double z11 = measured[i11] ? heightMap[i11] : fallbackZ;
                     double z01 = measured[i01] ? heightMap[i01] : fallbackZ;
 
-                    int[] p00 = project(x * dx,       y * dy,       z00, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
-                    int[] p10 = project((x + 1) * dx, y * dy,       z10, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
-                    int[] p11 = project((x + 1) * dx, (y + 1) * dy, z11, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
-                    int[] p01 = project(x * dx,       (y + 1) * dy, z01, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
+                    int[] p00 = project(x * dx,     y * dy,     z00, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
+                    int[] p10 = project(xNext * dx, y * dy,     z10, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
+                    int[] p11 = project(xNext * dx, yNext * dy, z11, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
+                    int[] p01 = project(x * dx,     yNext * dy, z01, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
 
                     // Surface Normal scaled by depth exaggeration (elevation h = zCenter - z)
-                    double dzdx = -((z10 - z00 + z11 - z01) * 0.5 / dx) * zExag;
-                    double dzdy = -((z01 - z00 + z11 - z10) * 0.5 / dy) * zExag;
+                    double spanX = (xNext - x) * dx;
+                    double spanY = (yNext - y) * dy;
+                    double dzdx = -((z10 - z00 + z11 - z01) * 0.5 / spanX) * zExag;
+                    double dzdy = -((z01 - z00 + z11 - z10) * 0.5 / spanY) * zExag;
                     double nx = -dzdx;
                     double ny = -dzdy;
                     double nz = 1.0;
                     double nLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
                     nx /= nLen; ny /= nLen; nz /= nLen;
 
-                    // Hill-shading Lambertian diffuse + ambient
+                    // Hill-shading Lambertian diffuse + boosted ambient
                     double diff = Math.max(0.0, nx * lx + ny * ly + nz * lz);
-                    double shade = 0.40 + 0.60 * diff;
+                    double shade = 0.62 + 0.38 * diff;
 
-                    // Specimen Depth normalized colormap across full dynamic range
+                    // Specular reflection glint along surface contours
+                    double spec = Math.pow(Math.max(0.0, 2.0 * diff * nz - lz), 12.0);
+
+                    // Specimen Depth normalized colormap across full dynamic range with contrast enhancement
                     double avgZ = (z00 + z10 + z11 + z01) * 0.25;
                     double normZ = Math.clamp((avgZ - zBoxMin) / zSpan, 0.0, 1.0);
-                    int colorIdx = (int) Math.round((1.0 - normZ) * 255.0);
+                    double elevation = 1.0 - normZ;
+
+                    // Dynamic contrast & gamma enhancement
+                    double contrastGain = Math.max(0.2, state.getContrast());
+                    double gamma = Math.max(0.2, state.getColormapGamma());
+                    double effectiveExp = 1.0 / (Math.max(0.25, contrastGain) * gamma);
+                    double enhancedElev = Math.pow(elevation, effectiveExp);
+
+                    int rawColorIdx = (int) Math.round(enhancedElev * 255.0);
+                    int colorIdx = state.isColormapInverted() ? (255 - rawColorIdx) : rawColorIdx;
                     int argb = lut[Math.clamp(colorIdx, 0, 255)];
 
-                    int r = (int) Math.clamp(((argb >> 16) & 0xFF) * shade, 0, 255);
-                    int g = (int) Math.clamp(((argb >> 8) & 0xFF) * shade, 0, 255);
-                    int b = (int) Math.clamp((argb & 0xFF) * shade, 0, 255);
+                    // Brightness scaling directly driven by contrast setting
+                    double brightFactor = 0.65 + 0.35 * contrastGain;
+
+                    int baseR = (argb >> 16) & 0xFF;
+                    int baseG = (argb >> 8) & 0xFF;
+                    int baseB = argb & 0xFF;
+
+                    int specLight = (int) Math.round(spec * 55.0 * Math.min(2.0, contrastGain));
+
+                    int r = (int) Math.clamp(baseR * shade * brightFactor + specLight, 0, 255);
+                    int g = (int) Math.clamp(baseG * shade * brightFactor + specLight, 0, 255);
+                    int b = (int) Math.clamp(baseB * shade * brightFactor + specLight, 0, 255);
+
+                    // Minimum visibility baseline to prevent murky pitch-black voids
+                    int minFloor = (int) Math.round(20.0 * Math.min(1.5, contrastGain));
+                    r = Math.max(r, minFloor);
+                    g = Math.max(g, minFloor);
+                    b = Math.max(b, minFloor);
 
                     Color fill = new Color(r, g, b);
                     Color edge = new Color(Math.max(0, (int)(r * 0.85)), Math.max(0, (int)(g * 0.85)), Math.max(0, (int)(b * 0.85)), 120);
@@ -515,11 +529,14 @@ public final class Volume3DPanel extends JPanel {
         // Painter's Algorithm: sort back-to-front by camera depth
         quadList.sort(Comparator.comparingDouble(q -> q.camDepth));
 
+        boolean drawMeshEdges = (gridX <= 45 && gridY <= 45);
         for (RenderQuad q : quadList) {
             g2.setColor(q.fill);
             g2.fillPolygon(q.px, q.py, 4);
-            g2.setColor(q.edge);
-            g2.drawPolygon(q.px, q.py, 4);
+            if (drawMeshEdges) {
+                g2.setColor(q.edge);
+                g2.drawPolygon(q.px, q.py, 4);
+            }
         }
     }
 
@@ -539,7 +556,9 @@ public final class Volume3DPanel extends JPanel {
             float[] heightMap = volumeBuffer.getHeightMapUnsafe();
             boolean[] measured = volumeBuffer.getMeasuredMapUnsafe();
 
-            for (int y = 0; y < gridY; y++) {
+            int stepX = Math.max(1, (gridX + 119) / 120);
+            int stepY = Math.max(1, (gridY + 119) / 120);
+            for (int y = 0; y < gridY; y += stepY) {
                 int[] px = new int[gridX];
                 int[] py = new int[gridX];
                 for (int x = 0; x < gridX; x++) {
@@ -552,7 +571,7 @@ public final class Volume3DPanel extends JPanel {
                 g2.drawPolyline(px, py, gridX);
             }
 
-            for (int x = 0; x < gridX; x++) {
+            for (int x = 0; x < gridX; x += stepX) {
                 int[] px = new int[gridY];
                 int[] py = new int[gridY];
                 for (int y = 0; y < gridY; y++) {
@@ -585,20 +604,36 @@ public final class Volume3DPanel extends JPanel {
             float[] cscan = volumeBuffer.getCScanMapUnsafe();
             boolean[] measured = volumeBuffer.getMeasuredMapUnsafe();
 
-            for (int y = 0; y < gridY - 1; y++) {
-                for (int x = 0; x < gridX - 1; x++) {
+            int stepX = Math.max(1, (gridX + 119) / 120);
+            int stepY = Math.max(1, (gridY + 119) / 120);
+            for (int y = 0; y < gridY - 1; y += stepY) {
+                int yNext = Math.min(y + stepY, gridY - 1);
+                for (int x = 0; x < gridX - 1; x += stepX) {
+                    int xNext = Math.min(x + stepX, gridX - 1);
                     int i = y * gridX + x;
                     if (!measured[i]) continue;
 
-                    int val = (int) cscan[i];
+                    double contrastGain = Math.max(0.2, state.getContrast());
+                    int rawVal = (int) Math.round(cscan[i] * contrastGain);
+                    int val = state.isColormapInverted() ? (255 - rawVal) : rawVal;
                     int argb = lut[Math.clamp(val, 0, 255)];
 
-                    int[] p00 = project(x * dx,       y * dy,       zCenter, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, 1.0);
-                    int[] p10 = project((x + 1) * dx, y * dy,       zCenter, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, 1.0);
-                    int[] p11 = project((x + 1) * dx, (y + 1) * dy, zCenter, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, 1.0);
-                    int[] p01 = project(x * dx,       (y + 1) * dy, zCenter, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, 1.0);
+                    double brightFactor = 0.70 + 0.30 * contrastGain;
+                    int r = (int) Math.clamp(((argb >> 16) & 0xFF) * brightFactor, 0, 255);
+                    int g = (int) Math.clamp(((argb >> 8) & 0xFF) * brightFactor, 0, 255);
+                    int b = (int) Math.clamp((argb & 0xFF) * brightFactor, 0, 255);
 
-                    g2.setColor(new Color(argb));
+                    int minFloor = (int) Math.round(15.0 * Math.min(1.5, contrastGain));
+                    r = Math.max(r, minFloor);
+                    g = Math.max(g, minFloor);
+                    b = Math.max(b, minFloor);
+
+                    int[] p00 = project(x * dx,     y * dy,     zCenter, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, 1.0);
+                    int[] p10 = project(xNext * dx, y * dy,     zCenter, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, 1.0);
+                    int[] p11 = project(xNext * dx, yNext * dy, zCenter, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, 1.0);
+                    int[] p01 = project(x * dx,     yNext * dy, zCenter, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, 1.0);
+
+                    g2.setColor(new Color(r, g, b));
                     Polygon quad = new Polygon(
                             new int[]{p00[0], p10[0], p11[0], p01[0]},
                             new int[]{p00[1], p10[1], p11[1], p01[1]}, 4);
@@ -642,10 +677,13 @@ public final class Volume3DPanel extends JPanel {
         Colormap colormap = colormapRegistry.get(state.getColormap());
         int[] lut = colormap.getLut();
 
+        boolean inverted = state.isColormapInverted();
+
         // Draw color gradient
         for (int i = 0; i < barH; i++) {
             double frac = 1.0 - ((double) i / (barH - 1));
-            int idx = Math.clamp((int) Math.round(frac * 255.0), 0, 255);
+            int rawIdx = Math.clamp((int) Math.round(frac * 255.0), 0, 255);
+            int idx = inverted ? (255 - rawIdx) : rawIdx;
             g2.setColor(new Color(lut[idx]));
             g2.fillRect(x, y + i, barW, 1);
         }
@@ -664,7 +702,8 @@ public final class Volume3DPanel extends JPanel {
         g2.drawString(String.format("%.1f mm", zMax), x + barW + 6, y + barH);
 
         g2.setColor(new Color(0x88, 0xCC, 0xFF));
-        g2.drawString("Depth Z", x - 4, y - 8);
+        String barTitle = state.isColormapInverted() ? "Depth [Inv]" : "Depth Z";
+        g2.drawString(barTitle, x - 4, y - 8);
     }
 
     private void drawHud(Graphics2D g2, int w, int h, String title, double curYaw, double curPitch, double curZoom) {
@@ -690,8 +729,9 @@ public final class Volume3DPanel extends JPanel {
         g2.setColor(HUD_TEXT);
         g2.drawString(stats, w - statsW - 16, 30);
 
-        String hint = String.format("Orbit: Yaw %.0f° Pitch %.0f° Zoom %.1fx | [Left Drag]: Orbit | [Right Drag]: Pan | [Wheel]: Zoom | [Dbl Click]: Reset",
-                curYaw, curPitch, curZoom);
+        String hint = String.format("Yaw %.0f° Pitch %.0f° Zoom %.1fx | [V]: Colormap (%s) | [I]: Invert (%s) | [K]: Tune Colors | [+/-]: Bright (%.1fx)",
+                curYaw, curPitch, curZoom, state.getColormap().getLabel(),
+                state.isColormapInverted() ? "ON" : "OFF", state.getContrast());
         g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
         g2.setColor(new Color(0x77, 0x88, 0xAA));
         g2.drawString(hint, 16, h - 10);
@@ -852,5 +892,44 @@ public final class Volume3DPanel extends JPanel {
         g2.drawRoundRect(x + 12, y + 12, strW + 20, 26, 6, 6);
         g2.setColor(Color.WHITE);
         g2.drawString(badge, x + 22, y + 30);
+    }
+
+        public ColormapRegistry getColormapRegistry() {
+        return colormapRegistry;
+    }
+
+    public void autoFitColorRangeToObject() {
+        volumeBuffer.getLock().readLock().lock();
+        try {
+            float[] hMap = volumeBuffer.getHeightMapUnsafe();
+            float[] aMap = volumeBuffer.getAmplitudeMapUnsafe();
+            boolean[] mMap = volumeBuffer.getMeasuredMapUnsafe();
+            int total = volumeBuffer.getGridX() * volumeBuffer.getGridY();
+
+            List<Float> validDepths = new ArrayList<>();
+            float squelch = (float) state.getSquelch();
+            for (int i = 0; i < total; i++) {
+                if (mMap[i] && aMap[i] > squelch && hMap[i] > 0.0f) {
+                    validDepths.add(hMap[i]);
+                }
+            }
+
+            if (validDepths.size() >= 10) {
+                validDepths.sort(Float::compare);
+                // 5th to 95th percentile ignores spurious noise and ringdown outliers
+                int p5Idx = (int) (validDepths.size() * 0.05);
+                int p95Idx = (int) (validDepths.size() * 0.95);
+                double minZ = Math.max(0.0, validDepths.get(p5Idx) - 0.2);
+                double maxZ = validDepths.get(p95Idx) + 0.2;
+                if (maxZ > minZ + 0.5) {
+                    state.setColorRangeLockToGate(false);
+                    state.setColorMinDepthMm(Math.round(minZ * 10.0) / 10.0);
+                    state.setColorMaxDepthMm(Math.round(maxZ * 10.0) / 10.0);
+                    repaint();
+                }
+            }
+        } finally {
+            volumeBuffer.getLock().readLock().unlock();
+        }
     }
 }

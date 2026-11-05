@@ -54,6 +54,42 @@ class VolumeBufferTest {
     }
 
     @Test
+    void testHardwareSynchronizedRasterProgression() {
+        byte[] raw = new byte[scanConfig.getNumSamples()];
+        float[] proc = new float[scanConfig.getNumSamples()];
+        PeakEcho peak = PeakEcho.of(35.0, 150.0f, 200);
+
+        // Line 0: Forward direction (+X), 5 points (index 0..4)
+        for (int x = 0; x < 5; x++) {
+            boolean isLineStart = (x == 0);
+            boolean isLineEnd = (x == 4);
+            volumeBuffer.recordCurrentPoint(raw, proc, peak, scanConfig, volumeConfig,
+                    isLineStart, isLineEnd, true, false);
+            assertTrue(volumeBuffer.isMeasured(x, 0));
+        }
+
+        assertEquals(1, volumeBuffer.getCurrentY());
+
+        // Line 1: Reverse serpentine pass (-X), 5 points (index 4..0)
+        for (int x = 4; x >= 0; x--) {
+            boolean isLineStart = (x == 4);
+            boolean isLineEnd = (x == 0);
+            boolean isScanComplete = (x == 0 && volumeBuffer.getCurrentY() == 3); // Not complete yet
+            volumeBuffer.recordCurrentPoint(raw, proc, peak, scanConfig, volumeConfig,
+                    isLineStart, isLineEnd, false, isScanComplete);
+            assertTrue(volumeBuffer.isMeasured(x, 1));
+        }
+
+        assertEquals(2, volumeBuffer.getCurrentY());
+        assertFalse(volumeBuffer.isComplete());
+
+        // Test scan completion flag directly marks volume buffer complete
+        volumeBuffer.recordCurrentPoint(raw, proc, peak, scanConfig, volumeConfig,
+                false, true, true, true);
+        assertTrue(volumeBuffer.isComplete());
+    }
+
+    @Test
     void testSurfaceHeightAndAmplitudeRecording() {
         byte[] raw = new byte[scanConfig.getNumSamples()];
         float[] proc = new float[scanConfig.getNumSamples()];

@@ -7,6 +7,12 @@ use IEEE.NUMERIC_STD.ALL;
 -- Description: Time-Gain Compensation (TGC) Sweep Generator & 16-bit SPI DAC Driver.
 --              Generates analog attenuation/gain control voltage synchronized to
 --              each ultrasound transmission strike to compensate for acoustic depth decay.
+--              Tuned for 13-14 mm scanning depth with reduced amplification headroom:
+--              - Starts at 128 (to suppress near-field pulser ring-down noise).
+--              - Steps every 2.0 us (200 cycles @ 100 MHz, ~1.48 mm depth increment in water).
+--              - Ramps moderately (+190 per step) to reach controlled peak gain (~1950) around
+--                18-20 us (~13.3-14.8 mm depth) to prevent ADC clipping on strong container
+--                reflections and preserve full dynamic range.
 -- ============================================================================
 entity tgc_controller is
     Port (
@@ -115,13 +121,21 @@ begin
                     tgc_timer <= 0;
                 end if;
 
-                -- Step every 200 cycles (2.0 us). Ramp from 128 to ~3000 in ~44 us (~32-35 mm target depth)
+                -- Step every 200 cycles (2.0 us = ~1.48 mm depth increment in water).
+                -- Tuned for ~13-14 mm scanning depth with lower amplification headroom:
+                -- Ramps from 128 to ~1950 in ~18-20 us (+190 per step, max ceiling 1950)
+                -- to prevent saturation/clipping on strong reflections (e.g. plastic container boundary).
                 if tgc_step_cnt = 199 then
                     tgc_step_cnt <= 0;
-                    if tgc_value < 3000 then
-                        tgc_value    <= tgc_value + 135;
-                        spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(tgc_value, 12));
-                        spi_start    <= '1';
+                    if tgc_value < 1950 then
+                        if tgc_value + 190 >= 1950 then
+                            tgc_value    <= 1950;
+                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(1950, 12));
+                        else
+                            tgc_value    <= tgc_value + 190;
+                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(tgc_value + 190, 12));
+                        end if;
+                        spi_start <= '1';
                     end if;
                 else
                     tgc_step_cnt <= tgc_step_cnt + 1;

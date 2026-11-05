@@ -73,7 +73,16 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
     private final JSpinner spnChamberX = new JSpinner(new SpinnerNumberModel(100.0, 5.0, 1000.0, 5.0));
     private final JSpinner spnChamberY = new JSpinner(new SpinnerNumberModel(100.0, 5.0, 1000.0, 5.0));
     private final JSpinner spnLineStepY = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 20.0, 0.5));
+    private final JSpinner spnLineStepX = new JSpinner(new SpinnerNumberModel(0.10, 0.05, 5.0, 0.05));
     private final JSpinner spnStepsPerMm = new JSpinner(new SpinnerNumberModel(400.0, 10.0, 5000.0, 10.0));
+
+    // Chamber Scan Direction Selectors
+    private final JComboBox<String> cmbStartXDir = new JComboBox<>(new String[]{
+            "+X (Right / Pos)", "-X (Left / Neg)"
+    });
+    private final JComboBox<String> cmbAdvanceYDir = new JComboBox<>(new String[]{
+            "+Y (Forward / Pos)", "-Y (Backward / Neg)"
+    });
 
     // High-End Hero Chamber Scan Trigger Button & Progress Bar
     private final ModernUi.HeroScanButton btnTriggerChamberScan = new ModernUi.HeroScanButton();
@@ -160,6 +169,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         ModernUi.styleSpinner(spnChamberX);
         ModernUi.styleSpinner(spnChamberY);
         ModernUi.styleSpinner(spnLineStepY);
+        ModernUi.styleSpinner(spnLineStepX);
         ModernUi.styleSpinner(spnStepsPerMm);
         ModernUi.styleComboBox(cmbJogStep);
 
@@ -399,8 +409,13 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         JPanel card = createCardPanel("CHAMBER SCAN SETUP");
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
 
-        // Settings grid with dark styled spinners
-        JPanel grid = new JPanel(new GridLayout(4, 2, 8, 4)) {
+        // Settings grid with dark styled spinners and direction selectors
+        ModernUi.styleComboBox(cmbStartXDir);
+        ModernUi.styleComboBox(cmbAdvanceYDir);
+        cmbStartXDir.setPreferredSize(new Dimension(110, 24));
+        cmbAdvanceYDir.setPreferredSize(new Dimension(110, 24));
+
+        JPanel grid = new JPanel(new GridLayout(7, 2, 8, 4)) {
             @Override
             public Dimension getMaximumSize() {
                 return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
@@ -418,8 +433,17 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         grid.add(createLabel("Step \u0394Y (mm):"));
         grid.add(spnLineStepY);
 
+        grid.add(createLabel("Step \u0394X (mm):"));
+        grid.add(spnLineStepX);
+
         grid.add(createLabel("Steps/mm (1/16):"));
         grid.add(spnStepsPerMm);
+
+        grid.add(createLabel("Start Dir X:"));
+        grid.add(cmbStartXDir);
+
+        grid.add(createLabel("Advance Dir Y:"));
+        grid.add(cmbAdvanceYDir);
 
         card.add(grid);
         card.add(createVerticalGap(10));
@@ -486,6 +510,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         spnChamberX.addChangeListener(e -> settings.setChamberWidthX(((Number) spnChamberX.getValue()).doubleValue()));
         spnChamberY.addChangeListener(e -> settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue()));
         spnLineStepY.addChangeListener(e -> settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue()));
+        spnLineStepX.addChangeListener(e -> settings.setStepDeltaXMm(((Number) spnLineStepX.getValue()).doubleValue()));
         spnStepsPerMm.addChangeListener(e -> {
             double val = ((Number) spnStepsPerMm.getValue()).doubleValue();
             settings.setStepsPerMmX(val);
@@ -495,15 +520,22 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             motorService.updateSpeed();
         });
 
+        // Direction Selectors Listeners
+        cmbStartXDir.addActionListener(e -> settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0));
+        cmbAdvanceYDir.addActionListener(e -> settings.setAdvancePositiveY(cmbAdvanceYDir.getSelectedIndex() == 0));
+
         // ONE-CLICK CHAMBER SCAN TRIGGER
         btnTriggerChamberScan.addActionListener(e -> {
             // Apply current parameters
             settings.setChamberWidthX(((Number) spnChamberX.getValue()).doubleValue());
             settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue());
             settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue());
+            settings.setStepDeltaXMm(((Number) spnLineStepX.getValue()).doubleValue());
             settings.setStepsPerMmX(((Number) spnStepsPerMm.getValue()).doubleValue());
             settings.setStepsPerMmY(((Number) spnStepsPerMm.getValue()).doubleValue());
             settings.setSpeedMmPerSec(sldSpeed.getValue());
+            settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0);
+            settings.setAdvancePositiveY(cmbAdvanceYDir.getSelectedIndex() == 0);
 
             motorService.triggerChamberScan();
         });

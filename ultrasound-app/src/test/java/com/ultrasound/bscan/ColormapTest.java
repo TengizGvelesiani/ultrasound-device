@@ -1,6 +1,7 @@
 package com.ultrasound.bscan;
 
 import com.ultrasound.bscan.colormap.*;
+import com.ultrasound.bscan.model.ScannerState;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,5 +37,40 @@ class ColormapTest {
 
         assertEquals(0xFF000000, c0);
         assertEquals(0xFFFFFFFF, c255);
+    }
+
+    @Test
+    void testJetMapping() {
+        JetColormap jet = new JetColormap();
+        int[] lut = jet.getLut();
+        // Blue at 0, Red at 255
+        int blueAtZero = lut[0] & 0xFF;
+        int redAt255 = (lut[255] >> 16) & 0xFF;
+        assertTrue(blueAtZero > 100);
+        assertTrue(redAt255 > 100);
+    }
+
+    @Test
+    void testScannerStateColormapCustomization() {
+        ScannerState state = new ScannerState();
+        assertFalse(state.isColormapInverted());
+        state.toggleColormapInverted();
+        assertTrue(state.isColormapInverted());
+
+        // Default gate is 12.0 - 16.0 mm (matched to 13-14mm targets)
+        assertTrue(state.isColorRangeLockToGate());
+        assertEquals(12.0, state.getColorMinDepthMm(), 1e-3);
+        assertEquals(16.0, state.getColorMaxDepthMm(), 1e-3);
+
+        // Decoupled custom range
+        state.setColorRangeLockToGate(false);
+        state.setColorMinDepthMm(12.5);
+        state.setColorMaxDepthMm(14.5);
+        assertEquals(12.5, state.getColorMinDepthMm(), 1e-3);
+        assertEquals(14.5, state.getColorMaxDepthMm(), 1e-3);
+
+        // Gamma tuning
+        state.setColormapGamma(1.5);
+        assertEquals(1.5, state.getColormapGamma(), 1e-3);
     }
 }

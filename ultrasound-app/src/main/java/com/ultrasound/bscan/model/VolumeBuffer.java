@@ -7,6 +7,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Thread-safe volumetric and 2.5D surface container.
  * Stores 3D voxel matrices, surface elevation heightmaps Z(x, y),
  * peak echo amplitudes A(x, y), and en-face C-scan depth gate projections.
+ * Supports direct hardware-synchronized coordinate alignment from FPGA gantry status flags.
  */
 public final class VolumeBuffer {
 
@@ -20,7 +21,7 @@ public final class VolumeBuffer {
     private float[] heightMapMm;      // Depth in mm for each (x, y)
     private float[] amplitudeMap;     // Echo intensity 0..255 for each (x, y)
     private float[] cScanMap;         // Depth-gated C-scan Maximum Intensity Projection
-    private boolean[] measuredMap;     // True if a valid scan line has been recorded at (x, y)
+    private boolean[] measuredMap;    // True if a valid scan line has been recorded at (x, y)
 
     // Full 3D Volumetric Voxel Storage: (x * gridY + y) * numSamples + sampleIdx
     private byte[] voxelData;
@@ -83,7 +84,86 @@ public final class VolumeBuffer {
     }
 
     /**
-     * Stores incoming A-scan frame at current (x, y) head and automatically advances raster position.
+     * Stores incoming A-scan frame with hardware-synchronized alignment from FPGA frame status flags.
+     */
+    public void recordCurrentPoint(byte[] raw, float[] processed, PeakEcho peak,
+                                   ScanConfig scanConfig, VolumeScanConfig volumeConfig,
+                                   boolean isLineStart, boolean isLineEnd, boolean dirXPositive, boolean isScanComplete) {
+        rwLock.writeLock().lock();
+        try {
+            if (isComplete) return;
+
+            // If hardware signaled LINE_START, align raster head directly with gantry state
+            if (isLineStart) {
+                forwardX = dirXPositive;
+                currentX = dirXPositive ? 0 : Math.max(0, gridX - 1);
+            }
+
+            int idx = currentY * gridX + currentX;
+            if (idx >= 0 && idx < heightMapMm.length) {
+                // 1. Surface elevation & amplitude from peak echo inside the active gate
+                double gateMin = volumeConfig.getGateMinDepthMm();
+                double gateMax = volumeConfig.getGateMaxDepthMm();
+                if (gateMax <= gateMin) gateMax = gateMin + 1.0;
+
+                if (peak != null && peak.detected() && peak.depthMm() >= gateMin && peak.depthMm() <= gateMax) {
+                    heightMapMm[idx] = (float) Math.clamp(peak.depthMm(), gateMin, gateMax);
+                    amplitudeMap[idx] = peak.amplitude();
+                } else {
+                    heightMapMm[idx] = (float) gateMax;
+                    amplitudeMap[idx] = 0.0f;
+                }
+
+                // 2. Depth-gated C-Scan MIP
+                int startSample = scanConfig.getSampleIndexForDepth(volumeConfig.getGateMinDepthMm());
+                int endSample = scanConfig.getSampleIndexForDepth(volumeConfig.getGateMaxDepthMm());
+                float maxGatedAmp = 0.0f;
+                for (int s = startSample; s <= endSample && s < processed.length; s++) {
+                    if (processed[s] > maxGatedAmp) {
+                        maxGatedAmp = processed[s];
+                    }
+                }
+                cScanMap[idx] = maxGatedAmp;
+                measuredMap[idx] = true;
+
+                // 3. Store full A-scan in 3D voxel volume
+                int voxelOffset = idx * numSamples;
+                System.arraycopy(raw, 0, voxelData, voxelOffset, Math.min(raw.length, numSamples));
+
+                linesRecorded++;
+            }
+
+            if (isScanComplete) {
+                isComplete = true;
+                return;
+            }
+
+            // Advance X along current sweep line
+            if (forwardX) {
+                if (currentX < gridX - 1) {
+                    currentX++;
+                }
+            } else {
+                if (currentX > 0) {
+                    currentX--;
+                }
+            }
+
+            // If hardware signaled LINE_END, step Y to next raster line
+            if (isLineEnd) {
+                if (currentY < gridY - 1) {
+                    currentY++;
+                } else {
+                    isComplete = true;
+                }
+            }
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Stores incoming A-scan frame at current (x, y) head and automatically advances raster position (simulation fallback).
      */
     public void recordCurrentPoint(byte[] raw, float[] processed, PeakEcho peak,
                                    ScanConfig scanConfig, VolumeScanConfig volumeConfig) {
@@ -92,6 +172,7 @@ public final class VolumeBuffer {
             if (isComplete) return;
 
             int idx = currentY * gridX + currentX;
+            if (idx < 0 || idx >= heightMapMm.length) { isComplete = true; return; }
 
             // 1. Surface elevation & amplitude from peak echo inside the active gate
             double gateMin = volumeConfig.getGateMinDepthMm();
@@ -102,7 +183,6 @@ public final class VolumeBuffer {
                 heightMapMm[idx] = (float) Math.clamp(peak.depthMm(), gateMin, gateMax);
                 amplitudeMap[idx] = peak.amplitude();
             } else {
-                // Default to gate floor (NOT 0.0 mm ceiling) to eliminate hanging icicle/stalactite artifacts
                 heightMapMm[idx] = (float) gateMax;
                 amplitudeMap[idx] = 0.0f;
             }
@@ -250,6 +330,7 @@ public final class VolumeBuffer {
     public int getCurrentY() { return currentY; }
     public int getLinesRecorded() { return linesRecorded; }
     public boolean isComplete() { return isComplete; }
+    public void setComplete(boolean complete) { this.isComplete = complete; }
     public ReentrantReadWriteLock getLock() { return rwLock; }
 
     public float[] getHeightMapUnsafe() { return heightMapMm; }

@@ -4,7 +4,8 @@ import com.ultrasound.bscan.io.FpgaCommandProtocol;
 
 /**
  * Configuration and calibration model for the motorized ultrasound scanning gantry.
- * Accommodates arbitrary container/chamber dimensions and 1/16 microstepping drivers.
+ * Accommodates arbitrary container/chamber dimensions, 1/16 microstepping drivers,
+ * and user-selected initial scan directions (+X/-X, +Y/-Y).
  */
 public final class MotorSettings {
 
@@ -12,6 +13,7 @@ public final class MotorSettings {
     private double chamberWidthX = 100.0;     // mm
     private double chamberLengthY = 100.0;    // mm
     private double lineSpacingY = 1.0;        // mm per raster line
+    private double stepDeltaXMm = 0.1;        // mm per position-triggered pulse on X axis (default 40 microsteps @ 400 stp/mm)
 
     // Calibration: steps per mm (1/16 microstepping on standard 8mm lead screws = 400 steps/mm)
     private double stepsPerMmX = 400.0;
@@ -22,6 +24,10 @@ public final class MotorSettings {
 
     // Jogging step size in mm (0.0 means continuous)
     private double jogIncrementMm = 1.0;
+
+    // Scan Trajectory Start Directions
+    private boolean startPositiveX = true;    // true = +X (Right), false = -X (Left)
+    private boolean advancePositiveY = true;  // true = +Y (Forward), false = -Y (Backward)
 
     public MotorSettings() {
     }
@@ -48,6 +54,14 @@ public final class MotorSettings {
 
     public synchronized void setLineSpacingY(double lineSpacingY) {
         this.lineSpacingY = Math.clamp(lineSpacingY, 0.05, 50.0);
+    }
+
+    public synchronized double getStepDeltaXMm() {
+        return stepDeltaXMm;
+    }
+
+    public synchronized void setStepDeltaXMm(double stepDeltaXMm) {
+        this.stepDeltaXMm = Math.clamp(stepDeltaXMm, 0.01, 10.0);
     }
 
     public synchronized double getStepsPerMmX() {
@@ -82,6 +96,22 @@ public final class MotorSettings {
         this.jogIncrementMm = Math.max(0.0, jogIncrementMm);
     }
 
+    public synchronized boolean isStartPositiveX() {
+        return startPositiveX;
+    }
+
+    public synchronized void setStartPositiveX(boolean startPositiveX) {
+        this.startPositiveX = startPositiveX;
+    }
+
+    public synchronized boolean isAdvancePositiveY() {
+        return advancePositiveY;
+    }
+
+    public synchronized void setAdvancePositiveY(boolean advancePositiveY) {
+        this.advancePositiveY = advancePositiveY;
+    }
+
     public synchronized long mmToStepsX(double mm) {
         return Math.round(mm * stepsPerMmX);
     }
@@ -108,5 +138,11 @@ public final class MotorSettings {
 
     public synchronized int getTotalScanLines() {
         return (int) Math.max(1, Math.ceil(chamberLengthY / lineSpacingY)) + 1;
+    }
+
+    public synchronized int getTotalScanPointsX() {
+        long totalXSteps = mmToStepsX(chamberWidthX);
+        int deltaXSteps = (int) Math.clamp(Math.round(stepsPerMmX * stepDeltaXMm), 1, 255);
+        return (int) Math.max(2, totalXSteps / deltaXSteps);
     }
 }

@@ -11,6 +11,11 @@ public final class ColormapRegistry {
     private final Map<ColormapType, Colormap> colormaps = new EnumMap<>(ColormapType.class);
 
     public ColormapRegistry() {
+        register(new TurboColormap());
+        register(new AmberColormap());
+        register(new JetColormap());
+        register(new ViridisColormap());
+        register(new CoolWarmColormap());
         register(new BoneColormap());
         register(new HotColormap());
         register(new InfernoColormap());
@@ -23,6 +28,6 @@ public final class ColormapRegistry {
 
     public Colormap get(ColormapType type) {
         Colormap cm = colormaps.get(type);
-        return cm != null ? cm : colormaps.get(ColormapType.BONE);
+        return cm != null ? cm : colormaps.get(ColormapType.TURBO);
     }
 }

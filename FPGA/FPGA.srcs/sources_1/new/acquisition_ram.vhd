@@ -6,19 +6,23 @@ use IEEE.NUMERIC_STD.ALL;
 -- Module Name: acquisition_ram
 -- Description: Ultrasound A-Scan Line Buffer & High-Speed 2 Mbaud UART Transmitter.
 --              Stores 1024 decimated acoustic envelope samples per transmission burst,
---              then streams a 4-byte frame synchronization header (0xFF 0xAA 0x55 0x00)
+--              then streams a 4-byte frame synchronization header:
+--              (0xFF 0xAA 0x55 [STATUS_BYTE])
 --              followed by the 1024 envelope bytes at 2.000.000 baud to the PC.
+--              The STATUS_BYTE encodes scan active state, line index, direction,
+--              and scan completion directly from the hardware stepper controller.
 -- ============================================================================
 entity acquisition_ram is
     Port (
-        clk100mhz     : in  STD_LOGIC;
-        pulse_trigger : in  STD_LOGIC; -- Trigger from pulser_fsm
-        sample_data   : in  STD_LOGIC_VECTOR(7 downto 0);
-        sample_valid  : in  STD_LOGIC; -- From dsp_pipeline
+        clk100mhz      : in  STD_LOGIC;
+        pulse_trigger  : in  STD_LOGIC; -- Trigger from pulser_fsm
+        sample_data    : in  STD_LOGIC_VECTOR(7 downto 0);
+        sample_valid   : in  STD_LOGIC; -- From dsp_pipeline
+        scan_status_in : in  STD_LOGIC_VECTOR(7 downto 0); -- Hardware status flags from stepper_controller
 
         -- Serial Streamer Output
-        uart_tx       : out STD_LOGIC;
-        busy          : out STD_LOGIC
+        uart_tx        : out STD_LOGIC;
+        busy           : out STD_LOGIC
     );
 end acquisition_ram;
 
@@ -41,8 +45,8 @@ architecture Behavioral of acquisition_ram is
         UART_SEND_DATA,
         UART_WAIT_TX
     );
-    signal logger_state : logger_state_type := WAIT_PULSE;
-    signal return_state : logger_state_type := WAIT_PULSE;
+    signal logger_state   : logger_state_type := WAIT_PULSE;
+    signal return_state   : logger_state_type := WAIT_PULSE;
 
     -- UART Serializer Signals
     signal uart_tx_r      : STD_LOGIC := '1';
@@ -52,6 +56,9 @@ architecture Behavioral of acquisition_ram is
     signal uart_shift_reg : STD_LOGIC_VECTOR(10 downto 0) := (others => '1');
     signal baud_cnt       : integer range 0 to 1023 := 0;
     signal bit_idx        : integer range 0 to 10 := 0;
+
+    -- Latched Frame Status from Stepper Controller
+    signal latched_status : STD_LOGIC_VECTOR(7 downto 0) := x"00";
 
 begin
 
@@ -91,8 +98,9 @@ begin
             case logger_state is
                 when WAIT_PULSE =>
                     if pulse_trigger = '1' then
-                        ram_write_idx <= 0;
-                        logger_state  <= CAPTURE_SAMPLES;
+                        latched_status <= scan_status_in;
+                        ram_write_idx  <= 0;
+                        logger_state   <= CAPTURE_SAMPLES;
                     end if;
 
                 when CAPTURE_SAMPLES =>
@@ -132,7 +140,7 @@ begin
 
                 when UART_SEND_HEADER_4 =>
                     if uart_busy = '0' then
-                        tx_char      <= x"00";
+                        tx_char      <= latched_status; -- Transmit hardware status flags in Byte 3!
                         uart_start   <= '1';
                         return_state <= UART_SEND_DATA;
                         logger_state <= UART_WAIT_TX;

@@ -9,13 +9,14 @@ import java.util.function.Consumer;
 
 /**
  * High-speed serial reader thread handling binary frame synchronization at 2 Mbaud.
+ * Extracts the 3-byte sync preamble (0xFF 0xAA 0x55), parses Header Byte 3 (FPGA Hardware
+ * Frame Status / Gantry Sync metadata), and delivers the tagged A-scan envelope payload.
  */
 public final class SerialDataAcquisitionSource implements DataAcquisitionSource {
 
     private final String portName;
     private final int baudRate;
     private final int numSamples;
-    private final byte[] syncHeader;
 
     private SerialPort serialPort;
     private Thread readerThread;
@@ -25,7 +26,6 @@ public final class SerialDataAcquisitionSource implements DataAcquisitionSource 
         this.portName = portName;
         this.baudRate = config.getBaudRate();
         this.numSamples = config.getNumSamples();
-        this.syncHeader = ScanConfig.SYNC_HEADER;
     }
 
     @Override
@@ -59,8 +59,8 @@ public final class SerialDataAcquisitionSource implements DataAcquisitionSource 
     }
 
     private void runReaderLoop(Consumer<byte[]> frameConsumer, Consumer<Throwable> errorHandler) {
-        final int headerLen = syncHeader.length;
-        final int frameLen = headerLen + numSamples;
+        final int headerLen = 4; // 0xFF, 0xAA, 0x55, STATUS_BYTE
+        final int frameLen = headerLen + numSamples; // 4 + 1024 = 1028 bytes
 
         byte[] rawBuffer = new byte[65536];
         int bufferPos = 0;
@@ -90,9 +90,9 @@ public final class SerialDataAcquisitionSource implements DataAcquisitionSource 
                 while (true) {
                     int headerIdx = findSyncHeader(rawBuffer, bufferPos);
                     if (headerIdx == -1) {
-                        // If header not found, retain last (headerLen - 1) bytes for partial match
-                        if (bufferPos > headerLen - 1) {
-                            int keep = headerLen - 1;
+                        // If header preamble not found, retain last 2 bytes for partial match across chunks
+                        if (bufferPos > 2) {
+                            int keep = 2;
                             System.arraycopy(rawBuffer, bufferPos - keep, rawBuffer, 0, keep);
                             bufferPos = keep;
                         }
@@ -100,9 +100,12 @@ public final class SerialDataAcquisitionSource implements DataAcquisitionSource 
                     }
 
                     if (bufferPos >= headerIdx + frameLen) {
-                        // Complete packet found
-                        byte[] payload = new byte[numSamples];
-                        System.arraycopy(rawBuffer, headerIdx + headerLen, payload, 0, numSamples);
+                        // Complete packet found!
+                        // Payload: Byte 0 = Hardware Status Byte, Bytes 1..1024 = Envelope samples
+                        byte statusByte = rawBuffer[headerIdx + 3];
+                        byte[] payload = new byte[numSamples + 1];
+                        payload[0] = statusByte;
+                        System.arraycopy(rawBuffer, headerIdx + headerLen, payload, 1, numSamples);
                         frameConsumer.accept(payload);
 
                         // Shift remaining buffer
@@ -136,12 +139,11 @@ public final class SerialDataAcquisitionSource implements DataAcquisitionSource 
     }
 
     private int findSyncHeader(byte[] buffer, int length) {
-        int limit = length - syncHeader.length;
+        int limit = length - 3;
         for (int i = 0; i <= limit; i++) {
-            if (buffer[i] == syncHeader[0] &&
-                buffer[i + 1] == syncHeader[1] &&
-                buffer[i + 2] == syncHeader[2] &&
-                buffer[i + 3] == syncHeader[3]) {
+            if (buffer[i] == (byte) 0xFF &&
+                buffer[i + 1] == (byte) 0xAA &&
+                buffer[i + 2] == (byte) 0x55) {
                 return i;
             }
         }

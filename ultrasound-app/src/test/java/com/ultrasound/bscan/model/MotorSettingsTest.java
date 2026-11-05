@@ -57,4 +57,19 @@ class MotorSettingsTest {
         settings.setLineSpacingY(0.001);
         assertTrue(settings.getLineSpacingY() >= 0.05);
     }
+
+    @Test
+    @DisplayName("Maintains user-selected start direction configuration")
+    void testStartDirectionSettings() {
+        MotorSettings settings = new MotorSettings();
+        // Defaults to +X and +Y
+        assertTrue(settings.isStartPositiveX());
+        assertTrue(settings.isAdvancePositiveY());
+
+        settings.setStartPositiveX(false);
+        assertFalse(settings.isStartPositiveX());
+
+        settings.setAdvancePositiveY(false);
+        assertFalse(settings.isAdvancePositiveY());
+    }
 }

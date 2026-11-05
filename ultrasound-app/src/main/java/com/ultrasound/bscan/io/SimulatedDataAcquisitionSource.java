@@ -62,8 +62,8 @@ public final class SimulatedDataAcquisitionSource implements DataAcquisitionSour
         final long intervalMs = 1000 / prfHz;
 
         // Physical immersion tank depths
-        final int substratePlateDepthSample = config.getSampleIndexForDepth(38.0);
-        final int coinBaseDepthSample = config.getSampleIndexForDepth(35.0);
+        final int substratePlateDepthSample = config.getSampleIndexForDepth(15.2);
+        final int coinBaseDepthSample = config.getSampleIndexForDepth(14.0);
 
         double scanStep = 0.0;
 
@@ -132,18 +132,18 @@ public final class SimulatedDataAcquisitionSource implements DataAcquisitionSour
                     double starR = 0.13 + 0.05 * Math.cos(5.0 * angle);
 
                     if (distToCenter < starR) {
-                        reliefMm = 2.0; // Raised star center emblem (depth = 33.0 mm)
+                        reliefMm = 1.0; // Raised star center emblem (depth = 13.0 mm)
                     } else if (distToCenter > 0.40 && distToCenter < 0.50) {
-                        reliefMm = 1.2; // Raised outer protective rim (depth = 33.8 mm)
+                        reliefMm = 0.6; // Raised outer protective rim (depth = 13.4 mm)
                     } else if (distToCenter >= 0.50) {
-                        // Smooth bevel transition from outer rim (33.8 mm) down to substrate plate (38.0 mm)
+                        // Smooth bevel transition from outer rim (13.4 mm) down to substrate plate (15.2 mm)
                         double frac = (distToCenter - 0.50) / 0.02; // 0.0 to 1.0
-                        reliefMm = 1.2 * (1.0 - frac) - 3.0 * frac;
+                        reliefMm = 0.6 * (1.0 - frac) - 1.2 * frac;
                     } else {
-                        reliefMm = 0.0; // Flat field of the coin (depth = 35.0 mm)
+                        reliefMm = 0.0; // Flat field of the coin (depth = 14.0 mm)
                     }
 
-                    double depthMm = 35.0 - reliefMm;
+                    double depthMm = 14.0 - reliefMm;
                     echoCenterSample = config.getSampleIndexForDepth(depthMm);
                     echoAmplitude = 245;
 

@@ -9,6 +9,7 @@ use IEEE.NUMERIC_STD.ALL;
 --              generation (STRIKE/DAMP), active ringing suppression, and PRF timing.
 --              Supports both Free-Running 100 Hz PRF (Benchtop Live Mode) and
 --              Position-Triggered firing with Hardware Gating (Autonomous Chamber Scan).
+--              Cleanly inhibits PRF when scan_done_hold is asserted upon scan finish.
 -- ============================================================================
 entity pulser_fsm is
     Port (
@@ -17,6 +18,7 @@ entity pulser_fsm is
 
         -- Position-Trigger Mode & Hardware Gating from Stepper Controller
         scan_mode_active  : in  STD_LOGIC; -- HIGH during autonomous chamber scan
+        scan_done_hold    : in  STD_LOGIC; -- HIGH when chamber scan completes (inhibits 100Hz bench PRF)
         pos_pulse_trigger : in  STD_LOGIC; -- 1-cycle strobe from stepper_controller every N microsteps
 
         -- Gate Driver & Protection Controls
@@ -86,10 +88,10 @@ begin
     begin
         if rising_edge(clk100mhz) then
             -- Default defaults
-            oe_r      <= '1';
-            ina_r     <= '0';
-            inb_r     <= '1';
-            trigger_r <= '0';
+            oe_r       <= '1';
+            ina_r      <= '0';
+            inb_r      <= '1';
+            trigger_r  <= '0';
             last_state <= current_state;
 
             case current_state is
@@ -149,6 +151,9 @@ begin
                                 pulse_counter <= pulse_counter + 1;
                             end if;
                         end if;
+                    elsif scan_done_hold = '1' then
+                        -- Autonomous chamber scan has finished: hold pulser completely silent until host commands new action
+                        cycle_counter <= 0;
                     else
                         -- Benchtop Live Mode (Stationary / Manual Jog):
                         -- Free-running 100 Hz PRF timer for real-time acoustic feedback.

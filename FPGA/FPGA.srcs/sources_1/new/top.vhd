@@ -9,11 +9,13 @@ use IEEE.NUMERIC_STD.ALL;
 --              Demodulation & Envelope DSP Pipeline, Acquisition Line BRAM & UART TX,
 --              UART RX Command Decoder, and Position-Triggered Stepper Gantry Engine.
 --
---              Position-Triggered Pulser & Hardware Gated Scanning Engine:
---              - pulser_fsm transitions to STRIKE strictly upon pos_pulse_trigger from
---                stepper_controller during autonomous chamber scan sweeps.
---              - Hardware Gating suppresses all pulse emissions during Y-axis line indexing.
---              - Full backward-compatible free-running 100 Hz PRF preserved during idle.
+--              Hardware Synchronization & Frame Metadata Architecture:
+--              - Acquisition line buffer attaches exact hardware scan flags
+--                (Bit 7: scanning, Bit 6: complete, Bit 5: line_start, Bit 4: line_end,
+--                Bit 3: dir_x, Bits 2..0: line_idx) to Header Byte 3 of every UART packet.
+--              - Stepper controller asserts scan_done_hold upon scan finish to hold
+--                pulser completely silent, eliminating false triggers & motor runaways.
+--              - Full bidirectional runtime start direction control (+X/-X, +Y/-Y).
 --              - Flow control handshake via acq_busy eliminates frame drops.
 -- ============================================================================
 entity pulser_rtz is
@@ -50,17 +52,17 @@ entity pulser_rtz is
         io2       : out STD_LOGIC; -- Y1 MS1 (HIGH = 1/16 microstep)
         io3       : out STD_LOGIC; -- Y1 MS2 (HIGH = 1/16 microstep)
         io4       : out STD_LOGIC; -- Y1 MS3 (HIGH = 1/16 microstep)
-        io5       : out STD_LOGIC; -- Y1 SLEEP (HIGH = Awake)
-        io6       : out STD_LOGIC; -- Y1 RESET (HIGH = Run)
+        io5       : out STD_LOGIC; -- Y1 RESET ('1' = Run, '0' = Reset/Disabled)
+        io6       : out STD_LOGIC; -- Y1 SLEEP ('1' = Awake, '0' = Sleep/Idle)
 
         -- Motor 2 (Y2 Lead Screw: Hardware Locked in Lockstep with Y1)
         io7       : out STD_LOGIC; -- Y2 DIR
         io8       : out STD_LOGIC; -- Y2 STEP
-        io9       : out STD_LOGIC; -- Y2 MS1 (HIGH = 1/16 microstep)
-        io10      : out STD_LOGIC; -- Y2 MS2 (HIGH = 1/16 microstep)
-        io11      : out STD_LOGIC; -- Y2 MS3 (HIGH = 1/16 microstep)
-        io12      : out STD_LOGIC; -- Y2 SLEEP (HIGH = Awake)
-        io13      : out STD_LOGIC; -- Y2 RESET (HIGH = Run)
+        io9       : out STD_LOGIC; -- Y2 SLEEP ('1' = Awake, '0' = Sleep/Idle)
+        io10      : out STD_LOGIC; -- Y2 RESET ('1' = Run, '0' = Reset/Disabled)
+        io11      : out STD_LOGIC; -- Y2 MS1 (HIGH = 1/16 microstep)
+        io12      : out STD_LOGIC; -- Y2 MS2 (HIGH = 1/16 microstep)
+        io13      : out STD_LOGIC; -- Y2 MS3 (HIGH = 1/16 microstep)
 
         -- Motor 3 (Top X-Axis Carriage)
         io26      : out STD_LOGIC; -- X DIR
@@ -82,6 +84,7 @@ architecture Structural of pulser_rtz is
             clk100mhz         : in  STD_LOGIC;
             spi_init_done     : in  STD_LOGIC;
             scan_mode_active  : in  STD_LOGIC;
+            scan_done_hold    : in  STD_LOGIC;
             pos_pulse_trigger : in  STD_LOGIC;
             relay             : out STD_LOGIC;
             oe                : out STD_LOGIC;
@@ -119,12 +122,13 @@ architecture Structural of pulser_rtz is
     -- 4. A-Scan Line BRAM Buffer & High-Speed UART TX
     component acquisition_ram is
         Port (
-            clk100mhz     : in  STD_LOGIC;
-            pulse_trigger : in  STD_LOGIC;
-            sample_data   : in  STD_LOGIC_VECTOR(7 downto 0);
-            sample_valid  : in  STD_LOGIC;
-            uart_tx       : out STD_LOGIC;
-            busy          : out STD_LOGIC
+            clk100mhz      : in  STD_LOGIC;
+            pulse_trigger  : in  STD_LOGIC;
+            sample_data    : in  STD_LOGIC_VECTOR(7 downto 0);
+            sample_valid   : in  STD_LOGIC;
+            scan_status_in : in  STD_LOGIC_VECTOR(7 downto 0);
+            uart_tx        : out STD_LOGIC;
+            busy           : out STD_LOGIC
         );
     end component;
 
@@ -136,7 +140,7 @@ architecture Structural of pulser_rtz is
             cmd_strobe   : out STD_LOGIC;
             cmd_id       : out STD_LOGIC_VECTOR(7 downto 0);
             cmd_axis     : out STD_LOGIC_VECTOR(7 downto 0);
-            cmd_dir      : out STD_LOGIC;
+            cmd_dir      : out STD_LOGIC_VECTOR(7 downto 0);
             param1       : out unsigned(31 downto 0);
             param2       : out unsigned(31 downto 0);
             param3       : out unsigned(15 downto 0)
@@ -150,7 +154,7 @@ architecture Structural of pulser_rtz is
             cmd_strobe         : in  STD_LOGIC;
             cmd_id             : in  STD_LOGIC_VECTOR(7 downto 0);
             cmd_axis           : in  STD_LOGIC_VECTOR(7 downto 0);
-            cmd_dir            : in  STD_LOGIC;
+            cmd_dir            : in  STD_LOGIC_VECTOR(7 downto 0);
             param1             : in  unsigned(31 downto 0);
             param2             : in  unsigned(31 downto 0);
             param3             : in  unsigned(15 downto 0);
@@ -158,6 +162,8 @@ architecture Structural of pulser_rtz is
             acq_busy           : in  STD_LOGIC;
             pos_pulse_trigger  : out STD_LOGIC;
             scan_mode_active   : out STD_LOGIC;
+            scan_status        : out STD_LOGIC_VECTOR(7 downto 0);
+            scan_done_hold     : out STD_LOGIC;
 
             io0                : out STD_LOGIC;
             io1                : out STD_LOGIC;
@@ -200,7 +206,7 @@ architecture Structural of pulser_rtz is
     signal cmd_strobe_sig        : STD_LOGIC;
     signal cmd_id_sig            : STD_LOGIC_VECTOR(7 downto 0);
     signal cmd_axis_sig          : STD_LOGIC_VECTOR(7 downto 0);
-    signal cmd_dir_sig           : STD_LOGIC;
+    signal cmd_dir_sig           : STD_LOGIC_VECTOR(7 downto 0);
     signal param1_sig            : unsigned(31 downto 0);
     signal param2_sig            : unsigned(31 downto 0);
     signal param3_sig            : unsigned(15 downto 0);
@@ -209,6 +215,8 @@ architecture Structural of pulser_rtz is
     signal pos_pulse_trigger_sig : STD_LOGIC;
     signal scan_mode_active_sig  : STD_LOGIC;
     signal acq_busy_sig          : STD_LOGIC;
+    signal scan_status_sig       : STD_LOGIC_VECTOR(7 downto 0);
+    signal scan_done_hold_sig    : STD_LOGIC;
 
 begin
 
@@ -227,6 +235,7 @@ begin
             clk100mhz         => CLK100MHZ,
             spi_init_done     => spi_init_done_sig,
             scan_mode_active  => scan_mode_active_sig,
+            scan_done_hold    => scan_done_hold_sig,
             pos_pulse_trigger => pos_pulse_trigger_sig,
             relay             => relay_sig,
             oe                => oe,
@@ -261,12 +270,13 @@ begin
     -- 4. Acquisition Line Buffer & 2 Mbaud UART Transmitter
     u_acquisition_ram: acquisition_ram
         port map (
-            clk100mhz     => CLK100MHZ,
-            pulse_trigger => pulse_trigger_sig,
-            sample_data   => sample_data_sig,
-            sample_valid  => sample_valid_sig,
-            uart_tx       => uart_tx,
-            busy          => acq_busy_sig
+            clk100mhz      => CLK100MHZ,
+            pulse_trigger  => pulse_trigger_sig,
+            sample_data    => sample_data_sig,
+            sample_valid   => sample_valid_sig,
+            scan_status_in => scan_status_sig,
+            uart_tx        => uart_tx,
+            busy           => acq_busy_sig
         );
 
     -- 5. Command Receiver & Packet Protocol Decoder
@@ -298,6 +308,8 @@ begin
             acq_busy           => acq_busy_sig,
             pos_pulse_trigger  => pos_pulse_trigger_sig,
             scan_mode_active   => scan_mode_active_sig,
+            scan_status        => scan_status_sig,
+            scan_done_hold     => scan_done_hold_sig,
 
             io0                => io0,
             io1                => io1,

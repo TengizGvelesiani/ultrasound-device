@@ -7,9 +7,19 @@ if %ERRORLEVEL% equ 0 (
     exit /b %ERRORLEVEL%
 )
 
-set ERRORLEVEL=0
-if exist "C:\Program Files\JetBrains\IntelliJ IDEA 2026.2.3\plugins\maven-plugin\lib\maven3\bin\mvn.cmd" (
-    "C:\Program Files\JetBrains\IntelliJ IDEA 2026.2.3\plugins\maven-plugin\lib\maven3\bin\mvn.cmd" %*
+for /d %%I in ("C:\Program Files\JetBrains\IntelliJ IDEA*") do (
+    if exist "%%I\plugins\maven\lib\maven3\bin\mvn.cmd" (
+        call "%%I\plugins\maven\lib\maven3\bin\mvn.cmd" %*
+        exit /b %ERRORLEVEL%
+    )
+    if exist "%%I\plugins\maven-plugin\lib\maven3\bin\mvn.cmd" (
+        call "%%I\plugins\maven-plugin\lib\maven3\bin\mvn.cmd" %*
+        exit /b %ERRORLEVEL%
+    )
+)
+
+if exist "C:\Program Files\JetBrains\IntelliJ IDEA 2023.2.2\plugins\maven\lib\maven3\bin\mvn.cmd" (
+    call "C:\Program Files\JetBrains\IntelliJ IDEA 2023.2.2\plugins\maven\lib\maven3\bin\mvn.cmd" %*
     exit /b %ERRORLEVEL%
 )
 

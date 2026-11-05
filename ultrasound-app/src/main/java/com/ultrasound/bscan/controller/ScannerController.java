@@ -7,6 +7,8 @@ import com.ultrasound.bscan.io.PortInfo;
 import com.ultrasound.bscan.io.SerialDataAcquisitionSource;
 import com.ultrasound.bscan.io.SimulatedDataAcquisitionSource;
 import com.ultrasound.bscan.model.AScanFrame;
+import com.ultrasound.bscan.model.MotorSettings;
+import com.ultrasound.bscan.model.VolumeScanConfig;
 import com.ultrasound.bscan.model.PeakEcho;
 import com.ultrasound.bscan.model.ScanBuffer;
 import com.ultrasound.bscan.model.ScanConfig;
@@ -22,6 +24,7 @@ import com.ultrasound.bscan.ui.MotorControlPanel;
 import com.ultrasound.bscan.ui.StatusBar;
 import com.ultrasound.bscan.ui.Volume3DPanel;
 import com.ultrasound.bscan.ui.VolumeControlPanel;
+import com.ultrasound.bscan.ui.ColormapTuningDialog;
 
 import javax.swing.AbstractAction;
 import javax.swing.JComponent;
@@ -43,6 +46,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -138,11 +142,37 @@ public final class ScannerController {
         controlPanel.onConnectClicked(this::toggleConnect);
         controlPanel.onSimulationToggled(this::onSimulationToggled);
 
+        // Motor Controller Listener for Autonomous 3D Chamber Scans
+        if (motorService != null) {
+            motorService.addListener(new MotorControllerService.MotorStateListener() {
+                @Override
+                public void onScanStateChanged(boolean isScanning, String message) {
+                    SwingUtilities.invokeLater(() -> {
+                        if (isScanning) {
+                            prepareChamberScan3D();
+                        } else {
+                            if (volumeBuffer != null && !volumeBuffer.isComplete()) {
+                                volumeBuffer.setComplete(true);
+                            }
+                            volume3DPanel.repaint();
+                        }
+                    });
+                }
+
+                @Override
+                public void onPositionUpdated(double xMm, double yMm, long xSteps, long ySteps) {}
+
+                @Override
+                public void onScanProgress(int currentLine, int totalLines, double percent) {}
+            });
+        }
+
         // 3D Controls
         volumeControlPanel.onSwitchModeClicked(this::toggleViewMode);
         volumeControlPanel.onRecordClicked(this::toggleRecord);
         volumeControlPanel.onStyleClicked(this::cycleRender3DStyle);
         volumeControlPanel.onColormapClicked(this::cycleColormap);
+        volumeControlPanel.onTuneColorsClicked(this::openColormapDialog);
         volumeControlPanel.onSaveClicked(this::saveScan);
         volumeControlPanel.onOpenFolderClicked(this::openScansFolder);
         volumeControlPanel.onClear3DClicked(this::clearScan);
@@ -150,21 +180,36 @@ public final class ScannerController {
 
         // View Mode Switcher
         state.addListener(s -> {
-            if (s.getViewMode() == ViewMode.MODE_2D) {
-                centerLayout.show(centerContainer, "2D");
-                controlsLayout.show(controlsContainer, "2D");
-                bScanPanel.repaint();
-                aScanPanel.repaint();
-            } else {
-                centerLayout.show(centerContainer, "3D");
-                controlsLayout.show(controlsContainer, "3D");
-                volume3DPanel.repaint();
-            }
+            Runnable r = () -> {
+                try {
+                    if (s.getViewMode() == ViewMode.MODE_2D) {
+                        centerLayout.show(centerContainer, "2D");
+                        controlsLayout.show(controlsContainer, "2D");
+                        centerContainer.revalidate();
+                        controlsContainer.revalidate();
+                        bScanPanel.repaint();
+                        aScanPanel.repaint();
+                    } else {
+                        centerLayout.show(centerContainer, "3D");
+                        controlsLayout.show(controlsContainer, "3D");
+                        centerContainer.revalidate();
+                        controlsContainer.revalidate();
+                        volume3DPanel.repaint();
+                    }
 
-            // Reprocess 2D sweep if paused
-            if (!s.isRecording() && s.getMode() == ScanMode.SWEEP && buffer.getSweepIndex() > 0) {
-                buffer.reprocessSweep(signalProcessor, s.getSquelch(), s.getContrast());
-                bScanPanel.repaint();
+                    // Reprocess 2D sweep if paused
+                    if (!s.isRecording() && s.getMode() == ScanMode.SWEEP && buffer.getSweepIndex() > 0) {
+                        buffer.reprocessSweep(signalProcessor, s.getSquelch(), s.getContrast());
+                        bScanPanel.repaint();
+                    }
+                } catch (Exception ex) {
+                    System.err.println("[ViewMode Switch Error] " + ex.getMessage());
+                }
+            };
+            if (SwingUtilities.isEventDispatchThread()) {
+                r.run();
+            } else {
+                SwingUtilities.invokeLater(r);
             }
         });
 
@@ -189,6 +234,8 @@ public final class ScannerController {
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_M, 0), "toggleMode", this::toggleMode);
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_Z, 0), "toggleZoom", this::toggleZoom);
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_V, 0), "cycleColormap", this::cycleColormap);
+        registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_I, 0), "toggleInvertColormap", () -> state.toggleColormapInverted());
+        registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_K, 0), "openColormapDialog", this::openColormapDialog);
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_S, 0), "saveScan", this::saveScan);
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_Y, 0), "cycle3DStyle", this::cycleRender3DStyle);
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_OPEN_BRACKET, 0), "squelchDown",
@@ -202,6 +249,12 @@ public final class ScannerController {
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_PLUS, 0), "contrastUp2",
                 () -> state.setContrast(state.getContrast() + 0.2));
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_R, 0), "refreshPorts", this::refreshPorts);
+
+        // Echo Gate Quick Adjust: G / Shift+G for Gate Min, H / Shift+H for Gate Max
+        registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_G, 0), "gateMinDown", () -> nudgeGateMin(-0.5));
+        registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.SHIFT_DOWN_MASK), "gateMinUp", () -> nudgeGateMin(0.5));
+        registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_H, 0), "gateMaxDown", () -> nudgeGateMax(-0.5));
+        registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_H, KeyEvent.SHIFT_DOWN_MASK), "gateMaxUp", () -> nudgeGateMax(0.5));
 
         // 3D Camera Presets: 1: Iso, 2: Top, 3: Front, 4: Side, 5: Back-Iso, 0: Reset
         registerAction(root, KeyStroke.getKeyStroke(KeyEvent.VK_1, 0), "camIso",
@@ -469,7 +522,7 @@ public final class ScannerController {
 
     private void startRenderLoop() {
         List<byte[]> batch = new ArrayList<>(256);
-        final int blankingSamples = 60;
+        final int blankingSamples = 65;
         final double peakThreshold = 20.0;
 
         renderTimer = new Timer(16, e -> { // ~60 FPS
@@ -484,22 +537,62 @@ public final class ScannerController {
                 float[] processed = new float[config.getNumSamples()];
                 byte[] latestRaw = null;
 
-                for (byte[] raw : batch) {
+                for (byte[] rawPacket : batch) {
+                    byte statusByte = 0x00;
+                    byte[] raw;
+                    if (rawPacket.length > config.getNumSamples()) {
+                        statusByte = rawPacket[0];
+                        raw = Arrays.copyOfRange(rawPacket, 1, 1 + config.getNumSamples());
+                    } else {
+                        raw = rawPacket;
+                    }
+
                     latestRaw = raw;
                     signalProcessor.process(raw, processed, state.getSquelch(), state.getContrast());
 
-                    if (state.isRecording()) {
-                        if (state.getViewMode() == ViewMode.MODE_2D) {
+                    // Hardware status byte flags (from FPGA 2Mbaud UART)
+                    boolean isHardwareScanning = (statusByte & 0x80) != 0;
+                    boolean isScanComplete = (statusByte & 0x40) != 0;
+                    boolean isLineStart = (statusByte & 0x20) != 0;
+                    boolean isLineEnd = (statusByte & 0x10) != 0;
+                    boolean dirXPositive = (statusByte & 0x08) != 0;
+
+                    if (state.getViewMode() == ViewMode.MODE_2D) {
+                        if (isHardwareScanning) {
+                            if (state.getMode() == ScanMode.SWEEP) {
+                                if (isLineStart) {
+                                    buffer.clearSweep();
+                                }
+                                buffer.addSweepLine(raw, processed);
+                            } else {
+                                buffer.addWaterfallLine(processed);
+                            }
+                        } else if (state.isRecording()) {
                             if (state.getMode() == ScanMode.SWEEP) {
                                 buffer.addSweepLine(raw, processed);
                             } else {
                                 buffer.addWaterfallLine(processed);
                             }
-                        } else {
-                            PeakEcho peak = signalProcessor.detectPeak(processed, config, blankingSamples, peakThreshold);
-                            volumeBuffer.recordCurrentPoint(raw, processed, peak, config, state.getVolumeConfig());
+                        }
+                    }
 
-                            // If simulator is active, synchronize synthetic XY stage coordinates
+                    // 3D Volumetric Mode: Record whenever FPGA hardware is actively scanning
+                    // or when simulated data acquisition is recording
+                    boolean isScanning3D = isHardwareScanning ||
+                            (currentSource instanceof SimulatedDataAcquisitionSource && state.isRecording());
+
+                    if (isScanning3D && !volumeBuffer.isComplete()) {
+                        VolumeScanConfig vc = state.getVolumeConfig();
+                        PeakEcho peak = signalProcessor.detectPeakWithinGate(processed, config,
+                                vc.getGateMinDepthMm(), vc.getGateMaxDepthMm(), peakThreshold);
+                        if (isHardwareScanning) {
+                            volumeBuffer.recordCurrentPoint(raw, processed, peak, config, vc,
+                                    isLineStart, isLineEnd, dirXPositive, isScanComplete);
+                            if (isScanComplete && motorService != null) {
+                                motorService.notifyHardwareScanComplete();
+                            }
+                        } else {
+                            volumeBuffer.recordCurrentPoint(raw, processed, peak, config, vc);
                             if (currentSource instanceof SimulatedDataAcquisitionSource sim) {
                                 double normX = (volumeBuffer.getCurrentX() / (double) Math.max(1, volumeBuffer.getGridX() - 1)) * 2.0 - 1.0;
                                 double normY = (volumeBuffer.getCurrentY() / (double) Math.max(1, volumeBuffer.getGridY() - 1)) * 2.0 - 1.0;
@@ -510,7 +603,12 @@ public final class ScannerController {
                 }
 
                 if (latestRaw != null) {
-                    PeakEcho peak = signalProcessor.detectPeak(processed, config, blankingSamples, peakThreshold);
+                    VolumeScanConfig vc = state.getVolumeConfig();
+                    PeakEcho peak = signalProcessor.detectPeakWithinGate(processed, config,
+                            vc.getGateMinDepthMm(), vc.getGateMaxDepthMm(), peakThreshold);
+                    if (!peak.detected()) {
+                        peak = signalProcessor.detectPeak(processed, config, blankingSamples, peakThreshold);
+                    }
                     AScanFrame frame = new AScanFrame(System.nanoTime(), latestRaw, processed, peak);
                     state.setLatestFrame(frame);
                 }
@@ -543,6 +641,87 @@ public final class ScannerController {
             }
         });
         renderTimer.start();
+    }
+
+    public void prepareChamberScan3D() {
+        // 1. Switch to 3D ViewMode automatically so the user sees the scan in real time
+        state.setViewMode(ViewMode.MODE_3D);
+
+        // 2. Synchronize VolumeScanConfig with exact gantry chamber parameters
+        if (motorService != null) {
+            MotorSettings ms = motorService.getSettings();
+            double widthX = ms.getChamberWidthX();
+            double lengthY = ms.getChamberLengthY();
+            double lineSpacingY = ms.getLineSpacingY();
+            double stepDeltaX = ms.getStepDeltaXMm();
+
+            long totalXSteps = ms.mmToStepsX(widthX);
+            long totalYSteps = ms.mmToStepsY(lengthY);
+            int deltaYSteps = (int) Math.max(1, ms.mmToStepsY(lineSpacingY));
+            int deltaXSteps = (int) Math.clamp(Math.round(ms.getStepsPerMmX() * stepDeltaX), 1, 255);
+
+            int gridX = (int) Math.max(2, totalXSteps / deltaXSteps);
+            int gridY = (int) Math.max(2, totalYSteps / deltaYSteps + 1);
+
+            double actualStepSizeX = ms.stepsToMmX(deltaXSteps);
+            double actualStepSizeY = lineSpacingY;
+
+            VolumeScanConfig vConfig = state.getVolumeConfig();
+            vConfig.setGridX(gridX);
+            vConfig.setGridY(gridY);
+            vConfig.setStepSizeXMm(actualStepSizeX);
+            vConfig.setStepSizeYMm(actualStepSizeY);
+            vConfig.setPattern(VolumeScanConfig.ScanPattern.SNAKE);
+
+            // 3. Reallocate and clear buffer with fresh clean state
+            volumeBuffer.reallocate(vConfig);
+            volumeBuffer.clear(vConfig);
+
+            // 4. Drain any leftover frames in queue
+            dataQueue.clear();
+
+            // 5. Trigger repaint
+            volume3DPanel.repaint();
+            statusBar.setMessage("Chamber Scan in progress: " + gridX + " x " + gridY + " grid (" + (gridX * gridY) + " pts)...");
+        }
+    }
+
+    private ColormapTuningDialog colormapDialog = null;
+
+    private void openColormapDialog() {
+        if (colormapDialog == null) {
+            colormapDialog = new ColormapTuningDialog(mainFrame, state, volume3DPanel, volume3DPanel.getColormapRegistry());
+        }
+        colormapDialog.setLocationRelativeTo(mainFrame);
+        colormapDialog.setVisible(true);
+    }
+
+    private void nudgeGateMin(double deltaMm) {
+        VolumeScanConfig vc = state.getVolumeConfig();
+        double newMin = Math.clamp(vc.getGateMinDepthMm() + deltaMm, 2.0, vc.getGateMaxDepthMm() - 0.5);
+        vc.setGateMinDepthMm(newMin);
+        if (state.isColorRangeLockToGate()) {
+            state.setColorMinDepthMm(newMin);
+        }
+        state.setVolumeConfig(vc);
+        volumeControlPanel.setGateMinSelection((int) Math.round(newMin));
+        statusBar.setMessage(String.format("Echo Gate & Colormap: [%.1f - %.1f mm]", newMin, vc.getGateMaxDepthMm()));
+        aScanPanel.repaint();
+        volume3DPanel.repaint();
+    }
+
+    private void nudgeGateMax(double deltaMm) {
+        VolumeScanConfig vc = state.getVolumeConfig();
+        double newMax = Math.clamp(vc.getGateMaxDepthMm() + deltaMm, vc.getGateMinDepthMm() + 0.5, 100.0);
+        vc.setGateMaxDepthMm(newMax);
+        if (state.isColorRangeLockToGate()) {
+            state.setColorMaxDepthMm(newMax);
+        }
+        state.setVolumeConfig(vc);
+        volumeControlPanel.setGateMaxSelection((int) Math.round(newMax));
+        statusBar.setMessage(String.format("Echo Gate & Colormap: [%.1f - %.1f mm]", vc.getGateMinDepthMm(), newMax));
+        aScanPanel.repaint();
+        volume3DPanel.repaint();
     }
 
     public void shutdown() {

@@ -18,7 +18,7 @@ entity uart_rx_protocol is
         cmd_strobe   : out STD_LOGIC;
         cmd_id       : out STD_LOGIC_VECTOR(7 downto 0);
         cmd_axis     : out STD_LOGIC_VECTOR(7 downto 0);
-        cmd_dir      : out STD_LOGIC;
+        cmd_dir      : out STD_LOGIC_VECTOR(7 downto 0);
         param1       : out unsigned(31 downto 0);
         param2       : out unsigned(31 downto 0);
         param3       : out unsigned(15 downto 0)
@@ -52,7 +52,7 @@ architecture Behavioral of uart_rx_protocol is
     signal cmd_strobe_r  : STD_LOGIC := '0';
     signal cmd_id_r      : STD_LOGIC_VECTOR(7 downto 0) := (others => '0');
     signal cmd_axis_r    : STD_LOGIC_VECTOR(7 downto 0) := (others => '0');
-    signal cmd_dir_r     : STD_LOGIC := '0';
+    signal cmd_dir_r     : STD_LOGIC_VECTOR(7 downto 0) := (others => '0');
     signal param1_r      : unsigned(31 downto 0) := (others => '0');
     signal param2_r      : unsigned(31 downto 0) := (others => '0');
     signal param3_r      : unsigned(15 downto 0) := (others => '0');
@@ -170,7 +170,7 @@ begin
                             -- Checksum verified: latch parameters into outputs
                             cmd_id_r   <= pkt_buffer(2);
                             cmd_axis_r <= pkt_buffer(3);
-                            cmd_dir_r  <= pkt_buffer(4)(0);
+                            cmd_dir_r  <= pkt_buffer(4);
                             param1_r   <= unsigned(pkt_buffer(5)) & unsigned(pkt_buffer(6)) & unsigned(pkt_buffer(7)) & unsigned(pkt_buffer(8));
                             param2_r   <= unsigned(pkt_buffer(9)) & unsigned(pkt_buffer(10)) & unsigned(pkt_buffer(11)) & unsigned(pkt_buffer(12));
                             param3_r   <= unsigned(pkt_buffer(13)) & unsigned(pkt_buffer(14));
