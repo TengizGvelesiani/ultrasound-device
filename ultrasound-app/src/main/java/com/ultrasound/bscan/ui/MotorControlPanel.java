@@ -76,19 +76,28 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
     private final JSlider sldSpeed = new JSlider(1, 30, 10);
     private final JLabel lblSpeedValue = new JLabel("10.0 mm/s (4000 Hz)");
 
-    private final JButton btnJogYPlus = new ModernUi.RoundedButton("▲ Y+ (Sync)", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
-    private final JButton btnJogYMinus = new ModernUi.RoundedButton("▼ Y- (Sync)", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
-    private final JButton btnJogXMinus = new ModernUi.RoundedButton("◀ X-", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
-    private final JButton btnJogXPlus = new ModernUi.RoundedButton("X+ ▶", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
-    private final JButton btnHalt = new ModernUi.RoundedButton("■ HALT", ModernUi.COLOR_RED_DARK, ModernUi.COLOR_RED, 6);
+    private final JButton btnJogYPlus = new ModernUi.RoundedButton("Y+ (Sync)", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
+    private final JButton btnJogYMinus = new ModernUi.RoundedButton("Y- (Sync)", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
+    private final JButton btnJogXMinus = new ModernUi.RoundedButton("X-", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
+    private final JButton btnJogXPlus = new ModernUi.RoundedButton("X+", ModernUi.COLOR_SLATE, ModernUi.COLOR_SLATE_LIGHT, 6);
+    private final JButton btnHalt = new ModernUi.RoundedButton("HALT", ModernUi.COLOR_RED_DARK, ModernUi.COLOR_RED, 6);
 
     // Chamber Configuration Spinners (Styled dark inputs)
     private final JSpinner spnChamberX = new JSpinner(new SpinnerNumberModel(10.0, 1.0, 1000.0, 1.0));
     private final JSpinner spnChamberY = new JSpinner(new SpinnerNumberModel(40.0, 1.0, 1000.0, 1.0));
-    private final JSpinner spnLineStepY = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 20.0, 0.5));
-    private final JSpinner spnLineStepX = new JSpinner(new SpinnerNumberModel(0.10, 0.05, 5.0, 0.05));
-    private final JSpinner spnStepsPerMm = new JSpinner(new SpinnerNumberModel(400.0, 10.0, 5000.0, 10.0));
+    private final JSpinner spnLineStepY = new JSpinner(new SpinnerNumberModel(1.0, 0.05, 50.0, 0.5));
+    private final JSpinner spnLineStepX = new JSpinner(new SpinnerNumberModel(0.10, 0.01, 10.0, 0.05));
+    private final JSpinner spnGridPointsX = new JSpinner(new SpinnerNumberModel(100, 2, 5000, 10));
+    private final JSpinner spnGridLinesY = new JSpinner(new SpinnerNumberModel(41, 2, 2000, 5));
+    private final JSpinner spnStepsPerMmX = new JSpinner(new SpinnerNumberModel(400.0, 10.0, 5000.0, 10.0));
+    private final JSpinner spnStepsPerMmY = new JSpinner(new SpinnerNumberModel(400.0, 10.0, 5000.0, 10.0));
     private final JSpinner spnPreviewSpeed = new JSpinner(new SpinnerNumberModel(25.0, 1.0, 100.0, 5.0));
+
+    // Live Grid HUD Banner
+    private final JLabel lblGridBanner = new JLabel("● RASTER GRID: 100 × 41  (4,100 pts)");
+    private final JLabel lblGridDetails = new JLabel("Res: ΔX=0.10mm, ΔY=1.00mm | Est: ~42s @ 10 mm/s");
+    private boolean isUpdatingGrid = false;
+    private Runnable onChamberConfigChanged;
 
     // Chamber Scan Direction Selectors
     private final JComboBox<String> cmbStartXDir = new JComboBox<>(new String[]{
@@ -106,15 +115,16 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             "+ Positive (Right / Fwd)", "- Negative (Left / Back)"
     });
     private final JCheckBox chkLineAutoReturn = new JCheckBox("Auto-return to start position", true);
-    private final JButton btnTriggerLineScan = new ModernUi.RoundedButton("▶ START 2D LINE SCAN", new Color(0x1B, 0x4D, 0x6E), ModernUi.COLOR_CYAN, 6);
+    private final JButton btnTriggerLineScan = new ModernUi.RoundedButton("START 2D LINE SCAN", new Color(0x1B, 0x4D, 0x6E), ModernUi.COLOR_CYAN, 6);
+    private final JButton btnExportLineScan = new ModernUi.RoundedButton("EXPORT LINE SCAN (CSV & PNG)", new Color(0x1B, 0x4D, 0x3E), ModernUi.COLOR_GREEN, 6);
 
     // Chamber Area Graphic Preview Canvas
     private final ChamberAreaPreviewCanvas areaCanvas = new ChamberAreaPreviewCanvas();
 
     // High-End Hero Chamber Scan Trigger Button, Area Preview Button & Progress Bar
-    private final JButton btnPreviewScanArea = new ModernUi.RoundedButton("□ PREVIEW AREA", new Color(0x1B, 0x3A, 0x4F), ACCENT_CYAN, 6);
+    private final JButton btnPreviewScanArea = new ModernUi.RoundedButton("PREVIEW AREA", new Color(0x1B, 0x3A, 0x4F), ACCENT_CYAN, 6);
     private final ModernUi.HeroScanButton btnTriggerChamberScan = new ModernUi.HeroScanButton();
-    private final JButton btnAbortScan = new ModernUi.RoundedButton("■ ABORT", ModernUi.COLOR_RED_DARK, ModernUi.COLOR_RED, 6);
+    private final JButton btnAbortScan = new ModernUi.RoundedButton("ABORT", ModernUi.COLOR_RED_DARK, ModernUi.COLOR_RED, 6);
     private final ModernUi.ModernProgressBar prgScanProgress = new ModernUi.ModernProgressBar(new Color(0x00, 0xC8, 0x53), new Color(0x00, 0xE5, 0xFF));
     private final JLabel lblScanStatus = new JLabel("● Gantry ready");
 
@@ -211,8 +221,11 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         ModernUi.styleSpinner(spnChamberY);
         ModernUi.styleSpinner(spnLineStepY);
         ModernUi.styleSpinner(spnLineStepX);
-        ModernUi.styleSpinner(spnStepsPerMm);
+        ModernUi.styleSpinner(spnStepsPerMmX);
+        ModernUi.styleSpinner(spnStepsPerMmY);
         ModernUi.styleSpinner(spnPreviewSpeed);
+        ModernUi.styleSpinner(spnGridPointsX);
+        ModernUi.styleSpinner(spnGridLinesY);
         btnPreviewScanArea.setToolTipText("Moves the stepper motors quickly along the perimeter rectangle of the scan area and returns to original position.");
         ModernUi.styleComboBox(cmbJogStep);
         ModernUi.styleComboBox(cmbLineAxis);
@@ -495,6 +508,14 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         btnTriggerLineScan.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
         btnTriggerLineScan.setFont(new Font("Segoe UI", Font.BOLD, 10));
         card.add(btnTriggerLineScan);
+        card.add(createVerticalGap(4));
+
+        btnExportLineScan.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnExportLineScan.setPreferredSize(new Dimension(0, 26));
+        btnExportLineScan.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+        btnExportLineScan.setFont(new Font("Segoe UI", Font.BOLD, 9));
+        btnExportLineScan.setToolTipText("Exports raw ADC matrix, processed matrix, per-line echo diagnostics, and PNG image to scans/ folder");
+        card.add(btnExportLineScan);
 
         return card;
     }
@@ -518,6 +539,10 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
     public void triggerLineScan() {
         LineScanConfig lc = getLineScanConfig();
         motorService.triggerLineScan(lc);
+    }
+
+    public void onExportLineScanClicked(Runnable r) {
+        btnExportLineScan.addActionListener(e -> r.run());
     }
 
     public void updateViewMode(com.ultrasound.bscan.model.ViewMode mode) {
@@ -549,7 +574,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         cmbStartXDir.setPreferredSize(new Dimension(110, 24));
         cmbAdvanceYDir.setPreferredSize(new Dimension(110, 24));
 
-        JPanel grid = new JPanel(new GridLayout(8, 2, 8, 4)) {
+        JPanel grid = new JPanel(new GridLayout(11, 2, 8, 4)) {
             @Override
             public Dimension getMaximumSize() {
                 return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
@@ -561,17 +586,26 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         grid.add(createLabel("Width X (mm):"));
         grid.add(spnChamberX);
 
+        grid.add(createLabel("Grid Points X:"));
+        grid.add(spnGridPointsX);
+
         grid.add(createLabel("Length Y (mm):"));
         grid.add(spnChamberY);
 
-        grid.add(createLabel("Step \u0394Y (mm):"));
-        grid.add(spnLineStepY);
+        grid.add(createLabel("Grid Lines Y:"));
+        grid.add(spnGridLinesY);
 
         grid.add(createLabel("Step \u0394X (mm):"));
         grid.add(spnLineStepX);
 
-        grid.add(createLabel("Steps/mm (1/16):"));
-        grid.add(spnStepsPerMm);
+        grid.add(createLabel("Step \u0394Y (mm):"));
+        grid.add(spnLineStepY);
+
+        grid.add(createLabel("Steps/mm X:"));
+        grid.add(spnStepsPerMmX);
+
+        grid.add(createLabel("Steps/mm Y:"));
+        grid.add(spnStepsPerMmY);
 
         grid.add(createLabel("Start Dir X:"));
         grid.add(cmbStartXDir);
@@ -583,6 +617,32 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         grid.add(spnPreviewSpeed);
 
         card.add(grid);
+        card.add(createVerticalGap(6));
+
+        // Live Raster Grid HUD Card
+        JPanel hudCard = new JPanel();
+        hudCard.setLayout(new BoxLayout(hudCard, BoxLayout.Y_AXIS));
+        hudCard.setBackground(ModernUi.COLOR_INPUT_BG);
+        hudCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(ModernUi.COLOR_INPUT_BORDER, 1, true),
+                BorderFactory.createEmptyBorder(6, 8, 6, 8)
+        ));
+        hudCard.setAlignmentX(Component.LEFT_ALIGNMENT);
+        hudCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
+
+        lblGridBanner.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        lblGridBanner.setForeground(ACCENT_CYAN);
+        lblGridBanner.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        lblGridDetails.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+        lblGridDetails.setForeground(TEXT_MUTED);
+        lblGridDetails.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        hudCard.add(lblGridBanner);
+        hudCard.add(Box.createVerticalStrut(2));
+        hudCard.add(lblGridDetails);
+
+        card.add(hudCard);
         card.add(createVerticalGap(8));
 
         // FAST PREVIEW SCAN RECTANGLE BUTTON
@@ -677,26 +737,103 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         cmbLineDir.addActionListener(e -> areaCanvas.repaint());
         btnTriggerLineScan.addActionListener(e -> triggerLineScan());
 
-        // Chamber Configuration Listeners
+        // Chamber Configuration Listeners (with bidirectional mm <-> grid resolution sync)
         spnChamberX.addChangeListener(e -> {
-            settings.setChamberWidthX(((Number) spnChamberX.getValue()).doubleValue());
-            areaCanvas.repaint();
+            if (isUpdatingGrid) return;
+            isUpdatingGrid = true;
+            try {
+                settings.setChamberWidthX(((Number) spnChamberX.getValue()).doubleValue());
+                spnGridPointsX.setValue(settings.getGridPointsX());
+                updateGridHud();
+                areaCanvas.repaint();
+                notifyChamberConfigChanged();
+            } finally {
+                isUpdatingGrid = false;
+            }
         });
+
         spnChamberY.addChangeListener(e -> {
-            settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue());
-            areaCanvas.repaint();
+            if (isUpdatingGrid) return;
+            isUpdatingGrid = true;
+            try {
+                settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue());
+                spnGridLinesY.setValue(settings.getGridLinesY());
+                updateGridHud();
+                areaCanvas.repaint();
+                notifyChamberConfigChanged();
+            } finally {
+                isUpdatingGrid = false;
+            }
         });
+
+        spnLineStepX.addChangeListener(e -> {
+            if (isUpdatingGrid) return;
+            isUpdatingGrid = true;
+            try {
+                settings.setStepDeltaXMm(((Number) spnLineStepX.getValue()).doubleValue());
+                spnGridPointsX.setValue(settings.getGridPointsX());
+                updateGridHud();
+                areaCanvas.repaint();
+                notifyChamberConfigChanged();
+            } finally {
+                isUpdatingGrid = false;
+            }
+        });
+
         spnLineStepY.addChangeListener(e -> {
-            settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue());
-            areaCanvas.repaint();
+            if (isUpdatingGrid) return;
+            isUpdatingGrid = true;
+            try {
+                settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue());
+                spnGridLinesY.setValue(settings.getGridLinesY());
+                updateGridHud();
+                areaCanvas.repaint();
+                notifyChamberConfigChanged();
+            } finally {
+                isUpdatingGrid = false;
+            }
         });
-        spnLineStepX.addChangeListener(e -> settings.setStepDeltaXMm(((Number) spnLineStepX.getValue()).doubleValue()));
-        spnStepsPerMm.addChangeListener(e -> {
-            double val = ((Number) spnStepsPerMm.getValue()).doubleValue();
+
+        spnGridPointsX.addChangeListener(e -> {
+            if (isUpdatingGrid) return;
+            isUpdatingGrid = true;
+            try {
+                int pts = ((Number) spnGridPointsX.getValue()).intValue();
+                settings.setGridPointsX(pts);
+                spnLineStepX.setValue(settings.getStepDeltaXMm());
+                updateGridHud();
+                areaCanvas.repaint();
+                notifyChamberConfigChanged();
+            } finally {
+                isUpdatingGrid = false;
+            }
+        });
+
+        spnGridLinesY.addChangeListener(e -> {
+            if (isUpdatingGrid) return;
+            isUpdatingGrid = true;
+            try {
+                int lines = ((Number) spnGridLinesY.getValue()).intValue();
+                settings.setGridLinesY(lines);
+                spnLineStepY.setValue(settings.getLineSpacingY());
+                updateGridHud();
+                areaCanvas.repaint();
+                notifyChamberConfigChanged();
+            } finally {
+                isUpdatingGrid = false;
+            }
+        });
+        spnStepsPerMmX.addChangeListener(e -> {
+            double val = ((Number) spnStepsPerMmX.getValue()).doubleValue();
             settings.setStepsPerMmX(val);
-            settings.setStepsPerMmY(val);
             long stepHz = Math.round(settings.getSpeedMmPerSec() * val);
             lblSpeedValue.setText(String.format("%.1f mm/s (%d Hz)", settings.getSpeedMmPerSec(), stepHz));
+            motorService.updateSpeed();
+            areaCanvas.repaint();
+        });
+        spnStepsPerMmY.addChangeListener(e -> {
+            double val = ((Number) spnStepsPerMmY.getValue()).doubleValue();
+            settings.setStepsPerMmY(val);
             motorService.updateSpeed();
             areaCanvas.repaint();
         });
@@ -720,8 +857,8 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue());
             settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue());
             settings.setStepDeltaXMm(((Number) spnLineStepX.getValue()).doubleValue());
-            settings.setStepsPerMmX(((Number) spnStepsPerMm.getValue()).doubleValue());
-            settings.setStepsPerMmY(((Number) spnStepsPerMm.getValue()).doubleValue());
+            settings.setStepsPerMmX(((Number) spnStepsPerMmX.getValue()).doubleValue());
+            settings.setStepsPerMmY(((Number) spnStepsPerMmY.getValue()).doubleValue());
             settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0);
             settings.setAdvancePositiveY(cmbAdvanceYDir.getSelectedIndex() == 0);
             settings.setPreviewSpeedMmPerSec(((Number) spnPreviewSpeed.getValue()).doubleValue());
@@ -736,14 +873,56 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             settings.setChamberLengthY(((Number) spnChamberY.getValue()).doubleValue());
             settings.setLineSpacingY(((Number) spnLineStepY.getValue()).doubleValue());
             settings.setStepDeltaXMm(((Number) spnLineStepX.getValue()).doubleValue());
-            settings.setStepsPerMmX(((Number) spnStepsPerMm.getValue()).doubleValue());
-            settings.setStepsPerMmY(((Number) spnStepsPerMm.getValue()).doubleValue());
+            settings.setStepsPerMmX(((Number) spnStepsPerMmX.getValue()).doubleValue());
+            settings.setStepsPerMmY(((Number) spnStepsPerMmY.getValue()).doubleValue());
             settings.setSpeedMmPerSec(sldSpeed.getValue());
             settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0);
             settings.setAdvancePositiveY(cmbAdvanceYDir.getSelectedIndex() == 0);
 
             motorService.triggerChamberScan();
         });
+    }
+
+    private void updateGridHud() {
+        int gx = settings.getGridPointsX();
+        int gy = settings.getGridLinesY();
+        int totalPts = settings.getTotalScanPoints();
+        double estSec = settings.getEstimatedScanTimeSec();
+        String timeStr = estSec >= 60.0
+                ? String.format("%dm %02ds", (int) (estSec / 60), (int) (estSec % 60))
+                : String.format("%.0fs", estSec);
+
+        lblGridBanner.setText(String.format("● RASTER GRID: %d × %d  (%,d pts)", gx, gy, totalPts));
+        lblGridDetails.setText(String.format("Res: ΔX=%.2fmm, ΔY=%.2fmm | Est: ~%s @ %.0f mm/s",
+                settings.getStepDeltaXMm(), settings.getLineSpacingY(), timeStr, settings.getSpeedMmPerSec()));
+    }
+
+    public void applyDensityPreset(double deltaXMm, double deltaYMm) {
+        if (isUpdatingGrid) return;
+        isUpdatingGrid = true;
+        try {
+            settings.setStepDeltaXMm(deltaXMm);
+            settings.setLineSpacingY(deltaYMm);
+            spnLineStepX.setValue(settings.getStepDeltaXMm());
+            spnLineStepY.setValue(settings.getLineSpacingY());
+            spnGridPointsX.setValue(settings.getGridPointsX());
+            spnGridLinesY.setValue(settings.getGridLinesY());
+            updateGridHud();
+            areaCanvas.repaint();
+            notifyChamberConfigChanged();
+        } finally {
+            isUpdatingGrid = false;
+        }
+    }
+
+    public void setOnChamberConfigChanged(Runnable r) {
+        this.onChamberConfigChanged = r;
+    }
+
+    private void notifyChamberConfigChanged() {
+        if (onChamberConfigChanged != null) {
+            onChamberConfigChanged.run();
+        }
     }
 
     private double getSelectedJogIncrementMm() {
@@ -1013,7 +1192,8 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
                 // Text Labels
                 g2.setFont(new Font("Segoe UI", Font.BOLD, 9));
                 g2.setColor(TEXT_MUTED);
-                String dimStr = String.format("%.0f × %.0f mm", widthX, lengthY);
+                String dimStr = String.format("%.1f × %.1f mm  (Grid: %d × %d)",
+                        widthX, lengthY, settings.getGridPointsX(), settings.getGridLinesY());
                 g2.drawString(dimStr, 8, 13);
 
                 String dirStr = String.format("Start: %s, %s", startPosX ? "+X" : "-X", advancePosY ? "+Y" : "-Y");

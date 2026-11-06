@@ -113,6 +113,17 @@ public final class ModernUi {
         }
 
         @Override
+        public Dimension getPreferredSize() {
+            if (isPreferredSizeSet()) {
+                return super.getPreferredSize();
+            }
+            FontMetrics fm = getFontMetrics(getFont());
+            String t = getText();
+            int tw = (t != null && !t.isEmpty()) ? fm.stringWidth(t) : 0;
+            return new Dimension(tw + 16, 25);
+        }
+
+        @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -148,15 +159,20 @@ public final class ModernUi {
             // Text
             g2.setFont(getFont());
             FontMetrics fm = g2.getFontMetrics();
-            int textX = (w - fm.stringWidth(getText())) / 2;
-            int textY = (h + fm.getAscent() - fm.getDescent()) / 2;
+            String text = getText();
+            if (text != null && !text.isEmpty()) {
+                int textW = fm.stringWidth(text);
+                int textX = Math.max(4, (w - textW) / 2);
+                int textY = (h + fm.getAscent() - fm.getDescent()) / 2;
 
-            if (isPressed) {
-                textY += 1;
+                if (isPressed) {
+                    textY += 1;
+                }
+
+                g2.setClip(2, 1, w - 4, h - 2);
+                g2.setColor(isEnabled() ? getForeground() : new Color(0x75, 0x7B, 0x8C));
+                g2.drawString(text, textX, textY);
             }
-
-            g2.setColor(isEnabled() ? getForeground() : new Color(0x75, 0x7B, 0x8C));
-            g2.drawString(getText(), textX, textY);
 
             g2.dispose();
         }
@@ -206,6 +222,17 @@ public final class ModernUi {
                     repaint();
                 }
             });
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            if (isPreferredSizeSet()) {
+                return super.getPreferredSize();
+            }
+            FontMetrics fm = getFontMetrics(getFont());
+            String t = getText();
+            int tw = (t != null && !t.isEmpty()) ? fm.stringWidth(t) : 0;
+            return new Dimension(tw + 16, 25);
         }
 
         @Override
@@ -278,45 +305,31 @@ public final class ModernUi {
             g2.setColor(isEnabled() ? (isHovered ? Color.WHITE : COLOR_CYAN) : new Color(0x60, 0x68, 0x78));
             g2.fillPolygon(triX, triY, 3);
 
-            // Primary & Subtitle Text (dynamically adapted to fit available width)
+            // Primary Title Text strictly centered vertically (subtitle removed)
             int textLeft = circleX + circleD + 12;
             int avail = w - textLeft - 10;
 
             String title = "START CHAMBER SCAN";
-            Font titleFont = new Font("Segoe UI", Font.BOLD, 11);
+            Font titleFont = new Font("Segoe UI", Font.BOLD, 12);
             g2.setFont(titleFont);
-            if (g2.getFontMetrics().stringWidth(title) > avail) {
+            if (avail > 0 && g2.getFontMetrics().stringWidth(title) > avail) {
+                titleFont = new Font("Segoe UI", Font.BOLD, 11);
+                g2.setFont(titleFont);
+            }
+            if (avail > 0 && g2.getFontMetrics().stringWidth(title) > avail) {
                 titleFont = new Font("Segoe UI", Font.BOLD, 10);
                 g2.setFont(titleFont);
             }
-            if (g2.getFontMetrics().stringWidth(title) > avail) {
-                title = "START SCAN";
-            }
 
-            String subtitle = "Autonomous Serpentine XY";
-            Font subFont = new Font("Segoe UI", Font.PLAIN, 9);
-            g2.setFont(subFont);
-            if (g2.getFontMetrics().stringWidth(subtitle) > avail) {
-                subtitle = "Serpentine XY Grid";
-            }
-            if (g2.getFontMetrics().stringWidth(subtitle) > avail) {
-                subtitle = "XY Raster Scan";
-            }
-
-            int titleY = h / 2 - 2;
-            int subY = h / 2 + 12;
+            FontMetrics fm = g2.getFontMetrics(titleFont);
+            int textY = (h + fm.getAscent() - fm.getDescent()) / 2;
             if (isPressed) {
-                titleY += 1;
-                subY += 1;
+                textY += 1;
             }
 
             g2.setFont(titleFont);
             g2.setColor(isEnabled() ? Color.WHITE : new Color(0x82, 0x8A, 0x9B));
-            g2.drawString(title, textLeft, titleY);
-
-            g2.setFont(subFont);
-            g2.setColor(isEnabled() ? new Color(0x80, 0xDE, 0xEA) : new Color(0x60, 0x68, 0x76));
-            g2.drawString(subtitle, textLeft, subY);
+            g2.drawString(title, textLeft, textY);
 
             g2.dispose();
         }

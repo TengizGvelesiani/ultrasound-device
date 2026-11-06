@@ -7,12 +7,11 @@ use IEEE.NUMERIC_STD.ALL;
 -- Description: Time-Gain Compensation (TGC) Sweep Generator & 16-bit SPI DAC Driver.
 --              Generates analog attenuation/gain control voltage synchronized to
 --              each ultrasound transmission strike to compensate for acoustic depth decay.
---              Tuned for 13-14 mm scanning depth with reduced amplification headroom:
---              - Starts at 128 (to suppress near-field pulser ring-down noise).
+--              Calibrated for full 0 - 150 mm chamber scanning depth:
+--              - Starts at TGC_START_VAL (100) to suppress near-field ringdown noise.
 --              - Steps every 2.0 us (200 cycles @ 100 MHz, ~1.48 mm depth increment in water).
---              - Ramps moderately (+190 per step) to reach controlled peak gain (~1950) around
---                18-20 us (~13.3-14.8 mm depth) to prevent ADC clipping on strong container
---                reflections and preserve full dynamic range.
+--              - Linearly ramps (+25 per step) across the chamber volume.
+--              - Caps at TGC_MAX_CEILING (2200, out of 4095) at chamber floor depth.
 -- ============================================================================
 entity tgc_controller is
     Port (
@@ -31,6 +30,14 @@ end tgc_controller;
 
 architecture Behavioral of tgc_controller is
 
+    -- Generic Linear TGC Ramp across Chamber Depth (0 to 150 mm):
+    -- Smoothly counteracts acoustic attenuation across the immersion water column
+    -- without hardcoding for any specific target depth.
+    constant TGC_START_VAL    : integer := 100;   -- Start gain (0.05 V) during pulser burst & ringdown
+    constant TGC_MAX_CEILING  : integer := 2200;  -- Max gain ceiling (~1.1 V) at chamber floor (130-150 mm)
+    constant TGC_STEP_INC     : integer := 25;    -- Linear gain increment per 2.0 us (~1.48 mm depth) step
+    constant TGC_STEP_PERIOD  : integer := 199;   -- 200 cycles @ 100 MHz = 2.0 us step interval
+
     signal spi_state     : integer range 0 to 2 := 0;
     signal spi_bit_idx   : integer range 0 to 15 := 15;
     signal spi_clk_cnt   : integer := 0;
@@ -38,14 +45,14 @@ architecture Behavioral of tgc_controller is
     signal sck_r         : STD_LOGIC := '0';
     signal sci_r         : STD_LOGIC := '0';
     signal spi_start     : STD_LOGIC := '0';
-    signal spi_data_reg  : STD_LOGIC_VECTOR(15 downto 0) := x"3080"; 
+    signal spi_data_reg  : STD_LOGIC_VECTOR(15 downto 0) := x"3064"; 
 
     signal startup_timer : integer range 0 to 200 := 0;
     signal init_done_r   : STD_LOGIC := '0';
 
     signal tgc_timer     : integer := 0;
     signal tgc_step_cnt  : integer range 0 to 255 := 0;
-    signal tgc_value     : integer range 0 to 4095 := 128;
+    signal tgc_value     : integer range 0 to 4095 := TGC_START_VAL;
 
 begin
 
@@ -111,8 +118,8 @@ begin
             if pulse_trigger = '1' then
                 tgc_timer    <= 1;
                 tgc_step_cnt <= 0;
-                tgc_value    <= 100;
-                spi_data_reg <= x"3064";
+                tgc_value    <= TGC_START_VAL;
+                spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(TGC_START_VAL, 12));
                 spi_start    <= '1';
             elsif tgc_timer > 0 then
                 if tgc_timer < 25000 then
@@ -122,18 +129,16 @@ begin
                 end if;
 
                 -- Step every 200 cycles (2.0 us = ~1.48 mm depth increment in water).
-                -- Tuned for ~13-14 mm scanning depth with lower amplification headroom:
-                -- Ramps from 128 to ~1950 in ~18-20 us (+190 per step, max ceiling 1950)
-                -- to prevent saturation/clipping on strong reflections (e.g. plastic container boundary).
-                if tgc_step_cnt = 199 then
+                -- Linearly ramps gain across the chamber volume.
+                if tgc_step_cnt = TGC_STEP_PERIOD then
                     tgc_step_cnt <= 0;
-                    if tgc_value < 500 then
-                        if tgc_value + 30 >= 500 then
-                            tgc_value    <= 500;
-                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(500, 12));
+                    if tgc_value < TGC_MAX_CEILING then
+                        if tgc_value + TGC_STEP_INC >= TGC_MAX_CEILING then
+                            tgc_value    <= TGC_MAX_CEILING;
+                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(TGC_MAX_CEILING, 12));
                         else
-                            tgc_value    <= tgc_value + 30;
-                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(tgc_value + 30, 12));
+                            tgc_value    <= tgc_value + TGC_STEP_INC;
+                            spi_data_reg <= x"3" & STD_LOGIC_VECTOR(to_unsigned(tgc_value + TGC_STEP_INC, 12));
                         end if;
                         spi_start <= '1';
                     end if;

@@ -144,6 +144,7 @@ public final class ScanBuffer {
         rwLock.writeLock().lock();
         try {
             sweepIndex = 0;
+            lineScanActive = false;
             Arrays.fill(rawSweepBuffer, (byte) 0);
             Arrays.fill(processedSweepBuffer, 0.0f);
         } finally {
@@ -244,6 +245,50 @@ public final class ScanBuffer {
                 if (col < 0 || col >= waterfallWidth) return 0.0f;
                 return waterfallBuffer[col * numSamples + sampleIdx];
             }
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Reads the raw ADC sample value (0..255) safely at column x, depth sample y.
+     */
+    public int getRawSample(ScanMode mode, int col, int sampleIdx) {
+        rwLock.readLock().lock();
+        try {
+            if (sampleIdx < 0 || sampleIdx >= numSamples) return 0;
+
+            if (mode == ScanMode.SWEEP) {
+                if (col < 0 || col >= sweepCapacity) return 0;
+                return rawSweepBuffer[col * numSamples + sampleIdx] & 0xFF;
+            } else {
+                if (col < 0 || col >= waterfallWidth) return 0;
+                return Math.round(waterfallBuffer[col * numSamples + sampleIdx]);
+            }
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public byte[] getRawColumn(int col) {
+        rwLock.readLock().lock();
+        try {
+            if (col < 0 || col >= sweepCapacity) return null;
+            byte[] colData = new byte[numSamples];
+            System.arraycopy(rawSweepBuffer, col * numSamples, colData, 0, numSamples);
+            return colData;
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public float[] getProcessedColumn(int col) {
+        rwLock.readLock().lock();
+        try {
+            if (col < 0 || col >= sweepCapacity) return null;
+            float[] colData = new float[numSamples];
+            System.arraycopy(processedSweepBuffer, col * numSamples, colData, 0, numSamples);
+            return colData;
         } finally {
             rwLock.readLock().unlock();
         }

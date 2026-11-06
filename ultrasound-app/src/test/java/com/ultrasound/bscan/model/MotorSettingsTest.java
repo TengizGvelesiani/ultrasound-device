@@ -65,6 +65,31 @@ class MotorSettingsTest {
     }
 
     @Test
+    @DisplayName("Bidirectionally converts between physical step size and grid resolution")
+    void testGridResolutionConversion() {
+        MotorSettings settings = new MotorSettings();
+        settings.setChamberWidthX(10.0);
+        settings.setChamberLengthY(40.0);
+        settings.setStepDeltaXMm(0.10);
+        settings.setLineSpacingY(1.0);
+
+        assertEquals(100, settings.getGridPointsX());
+        assertEquals(41, settings.getGridLinesY());
+        assertEquals(4100, settings.getTotalScanPoints());
+
+        // Adjust grid points directly to 150 (integer microstep quantization to nearest step)
+        settings.setGridPointsX(150);
+        assertTrue(Math.abs(settings.getGridPointsX() - 150) <= 2);
+        assertTrue(settings.getStepDeltaXMm() < 0.10);
+
+        // Adjust grid lines directly to 101
+        settings.setGridLinesY(101);
+        assertEquals(101, settings.getGridLinesY());
+        assertEquals(0.40, settings.getLineSpacingY(), 0.01);
+        assertEquals(settings.getGridPointsX() * 101, settings.getTotalScanPoints());
+    }
+
+    @Test
     @DisplayName("Maintains user-selected start direction configuration")
     void testStartDirectionSettings() {
         MotorSettings settings = new MotorSettings();

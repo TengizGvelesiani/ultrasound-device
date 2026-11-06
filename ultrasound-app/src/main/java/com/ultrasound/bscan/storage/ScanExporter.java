@@ -17,9 +17,13 @@ import java.util.List;
  */
 public interface ScanExporter {
 
-    record ExportResult(File imageFile, File dataFile, List<File> additionalImages) {
+    record ExportResult(File imageFile, File dataFile, List<File> additionalImages, List<File> additionalDataFiles) {
         public ExportResult(File imageFile, File dataFile) {
-            this(imageFile, dataFile, List.of());
+            this(imageFile, dataFile, List.of(), List.of());
+        }
+
+        public ExportResult(File imageFile, File dataFile, List<File> additionalImages) {
+            this(imageFile, dataFile, additionalImages, List.of());
         }
     }
 

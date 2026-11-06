@@ -154,4 +154,36 @@ public final class MotorSettings {
         int deltaXSteps = (int) Math.clamp(Math.round(stepsPerMmX * stepDeltaXMm), 1, 255);
         return (int) Math.max(2, totalXSteps / deltaXSteps);
     }
+
+    public synchronized int getGridPointsX() {
+        return getTotalScanPointsX();
+    }
+
+    public synchronized void setGridPointsX(int pointsX) {
+        int pts = Math.max(2, pointsX);
+        long totalXSteps = mmToStepsX(chamberWidthX);
+        int deltaXSteps = (int) Math.clamp(Math.round((double) totalXSteps / pts), 1, 255);
+        this.stepDeltaXMm = Math.max(0.01, stepsToMmX(deltaXSteps));
+    }
+
+    public synchronized int getGridLinesY() {
+        return getTotalScanLines();
+    }
+
+    public synchronized void setGridLinesY(int linesY) {
+        int lines = Math.max(2, linesY);
+        double targetSpacing = chamberLengthY / (double) (lines - 1);
+        setLineSpacingY(targetSpacing);
+    }
+
+    public synchronized int getTotalScanPoints() {
+        return getGridPointsX() * getGridLinesY();
+    }
+
+    public synchronized double getEstimatedScanTimeSec() {
+        int lines = getTotalScanLines();
+        double sweepTimeSec = chamberWidthX / Math.max(0.5, speedMmPerSec);
+        double stepYTimeSec = lineSpacingY / Math.max(0.5, speedMmPerSec);
+        return (lines * sweepTimeSec) + ((lines - 1) * stepYTimeSec) + (lines * 0.05);
+    }
 }

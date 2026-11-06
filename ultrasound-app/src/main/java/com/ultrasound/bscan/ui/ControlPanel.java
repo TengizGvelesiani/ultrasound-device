@@ -37,7 +37,7 @@ public final class ControlPanel extends JPanel {
     private final JButton btnMode = createButton("Sweep (M)", BTN_COLOR);
     private final JButton btnViewMode = createButton("3D Mode [TAB]", new Color(0x2E, 0x5B, 0x82));
     private final JButton btnZoom = createButton("Full (Z)", BTN_COLOR);
-    private final JButton btnColormap = createButton("Map: Gray (V)", BTN_COLOR);
+    private final JButton btnColormap = createButton("Map: Turbo (V)", BTN_COLOR);
     private final JButton btnSave = createButton("Save (S)", BTN_SAVE_COLOR);
     private final JButton btnOpenFolder = createButton("Folder", BTN_COLOR);
 
@@ -137,7 +137,8 @@ public final class ControlPanel extends JPanel {
             btnMode.setText(s.getMode() == ScanMode.SWEEP ? "Sweep (M)" : "Waterfall (M)");
             btnViewMode.setText(s.getViewMode() == com.ultrasound.bscan.model.ViewMode.MODE_2D ? "3D Mode [TAB]" : "2D Mode [TAB]");
             btnZoom.setText(s.isZoomNear() ? "Near (Z)" : "Full (Z)");
-            btnColormap.setText("Map: " + s.getColormap().getLabel() + " (V)");
+            btnColormap.setText("Map: " + s.getColormap().getShortName() + " (V)");
+            btnColormap.setToolTipText("Colormap: " + s.getColormap().getLabel() + " (Press V to cycle)");
 
             if (sldSquelch.getValue() != (int) s.getSquelch()) {
                 sldSquelch.setValue((int) s.getSquelch());
@@ -155,8 +156,7 @@ public final class ControlPanel extends JPanel {
     private JButton createButton(String label, Color bg) {
         ModernUi.RoundedButton btn = new ModernUi.RoundedButton(label, bg, ModernUi.lighten(bg, 0.35f), 6);
         btn.setFont(new Font("Segoe UI", Font.BOLD, 9));
-        btn.setPreferredSize(new Dimension(105, 25));
-        btn.setMargin(new Insets(2, 4, 2, 4));
+        btn.setMargin(new Insets(2, 6, 2, 6));
         btn.setFocusable(false);
         return btn;
     }

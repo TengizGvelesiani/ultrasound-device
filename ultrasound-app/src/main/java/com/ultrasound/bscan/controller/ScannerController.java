@@ -327,13 +327,20 @@ public final class ScannerController {
 
                             chamberScanPrepared = false;
 
+                            state.setRecording(false);
+
                             if (volumeBuffer != null && !volumeBuffer.isComplete()) {
 
                                 volumeBuffer.setComplete(true);
 
                             }
 
-                            volume3DPanel.repaint();
+                            if (state.getViewMode() == ViewMode.MODE_2D && buffer != null && buffer.isLineScanActive()) {
+                                bScanPanel.repaint();
+                                statusBar.setMessage(String.format("2D Line Scan complete (%.1f mm). Image frozen. Press [S] to Export or [C] to Clear.", buffer.getLineScanLengthMm()));
+                            } else {
+                                volume3DPanel.repaint();
+                            }
 
                         }
 
@@ -365,6 +372,16 @@ public final class ScannerController {
 
 
 
+        if (motorControlPanel != null) {
+            motorControlPanel.setOnChamberConfigChanged(this::syncVolumeConfigFromMotors);
+            motorControlPanel.onExportLineScanClicked(this::saveScan);
+        }
+        if (volumeControlPanel != null && motorControlPanel != null) {
+            volumeControlPanel.setDensityPresetListener((dx, dy) -> {
+                motorControlPanel.applyDensityPreset(dx, dy);
+            });
+        }
+
         // 3D Controls
 
         volumeControlPanel.onSwitchModeClicked(this::toggleViewMode);
@@ -376,6 +393,11 @@ public final class ScannerController {
         volumeControlPanel.onColormapClicked(this::cycleColormap);
 
         volumeControlPanel.onTuneColorsClicked(this::openColormapDialog);
+
+        volumeControlPanel.onFilterToggled(enabled -> {
+            volumeBuffer.setFilterEnabled(enabled);
+            volume3DPanel.repaint();
+        });
 
         volumeControlPanel.onSaveClicked(this::saveScan);
 
@@ -472,6 +494,8 @@ public final class ScannerController {
             }
 
         });
+
+        syncVolumeConfigFromMotors();
 
     }
 
@@ -772,6 +796,10 @@ public final class ScannerController {
 
     public void toggleRecord() {
 
+        if (state.getViewMode() == ViewMode.MODE_2D && buffer != null && buffer.isLineScanActive() && !state.isRecording()) {
+            buffer.setLineScanActive(false);
+        }
+
         state.toggleRecording();
 
     }
@@ -960,9 +988,23 @@ public final class ScannerController {
 
             sb.append("2D B-Scan export complete!\n\n");
 
-            sb.append("Image: ").append(result.imageFile().getName()).append("\n");
+            sb.append("Image:    ").append(result.imageFile().getName()).append("\n");
 
-            sb.append("Data:  ").append(result.dataFile().getName()).append("\n\n");
+            sb.append("Raw CSV:  ").append(result.dataFile().getName()).append("\n");
+
+            if (result.additionalDataFiles() != null && !result.additionalDataFiles().isEmpty()) {
+
+                for (File f : result.additionalDataFiles()) {
+
+                    sb.append("Data:     ").append(f.getName()).append("\n");
+
+                }
+
+            }
+
+            sb.append("\nSaved in directory:\n");
+
+            sb.append(result.dataFile().getParentFile().getAbsolutePath()).append("\n\n");
 
         } else {
 
@@ -1164,13 +1206,17 @@ public final class ScannerController {
 
                                 buffer.addSweepLine(raw, processed);
 
+                                if (isScanComplete) {
+                                    state.setRecording(false);
+                                }
+
                             } else {
 
                                 buffer.addWaterfallLine(processed);
 
                             }
 
-                        } else if (state.isRecording()) {
+                        } else if (state.isRecording() && (buffer == null || !buffer.isLineScanActive())) {
 
                             if (state.getMode() == ScanMode.SWEEP) {
 
@@ -1352,6 +1398,45 @@ public final class ScannerController {
         bScanPanel.repaint();
     }
 
+    public void syncVolumeConfigFromMotors() {
+        if (motorService == null) return;
+        MotorSettings ms = motorService.getSettings();
+
+        double widthX = ms.getChamberWidthX();
+        double lengthY = ms.getChamberLengthY();
+        double lineSpacingY = ms.getLineSpacingY();
+        double stepDeltaX = ms.getStepDeltaXMm();
+
+        long totalXSteps = ms.mmToStepsX(widthX);
+        long totalYSteps = ms.mmToStepsY(lengthY);
+        int deltaYSteps = (int) Math.max(1, ms.mmToStepsY(lineSpacingY));
+        int deltaXSteps = (int) Math.clamp(Math.round(ms.getStepsPerMmX() * stepDeltaX), 1, 255);
+
+        int gridX = (int) Math.max(2, totalXSteps / deltaXSteps);
+        int gridY = (int) Math.max(2, totalYSteps / deltaYSteps + 1);
+
+        double actualStepSizeX = ms.stepsToMmX(deltaXSteps);
+        double actualStepSizeY = lineSpacingY;
+
+        VolumeScanConfig vConfig = state.getVolumeConfig();
+        vConfig.setGridX(gridX);
+        vConfig.setGridY(gridY);
+        vConfig.setStepSizeXMm(actualStepSizeX);
+        vConfig.setStepSizeYMm(actualStepSizeY);
+        vConfig.setPattern(VolumeScanConfig.ScanPattern.SNAKE);
+
+        // Notify state so all UI panels update their grid info
+        state.setVolumeConfig(vConfig);
+
+        if (!motorService.isChamberScanning()) {
+            volumeBuffer.reallocate(vConfig);
+            volumeBuffer.clear(vConfig);
+            if (volume3DPanel != null) {
+                volume3DPanel.repaint();
+            }
+        }
+    }
+
     public void prepareChamberScan3D() {
 
         chamberScanPrepared = true;
@@ -1360,80 +1445,16 @@ public final class ScannerController {
 
         state.setViewMode(ViewMode.MODE_3D);
 
-
-
         // 2. Synchronize VolumeScanConfig with exact gantry chamber parameters
+        syncVolumeConfigFromMotors();
 
         if (motorService != null) {
-
-            MotorSettings ms = motorService.getSettings();
-
-            double widthX = ms.getChamberWidthX();
-
-            double lengthY = ms.getChamberLengthY();
-
-            double lineSpacingY = ms.getLineSpacingY();
-
-            double stepDeltaX = ms.getStepDeltaXMm();
-
-
-
-            long totalXSteps = ms.mmToStepsX(widthX);
-
-            long totalYSteps = ms.mmToStepsY(lengthY);
-
-            int deltaYSteps = (int) Math.max(1, ms.mmToStepsY(lineSpacingY));
-
-            int deltaXSteps = (int) Math.clamp(Math.round(ms.getStepsPerMmX() * stepDeltaX), 1, 255);
-
-
-
-            int gridX = (int) Math.max(2, totalXSteps / deltaXSteps);
-
-            int gridY = (int) Math.max(2, totalYSteps / deltaYSteps + 1);
-
-
-
-            double actualStepSizeX = ms.stepsToMmX(deltaXSteps);
-
-            double actualStepSizeY = lineSpacingY;
-
-
-
             VolumeScanConfig vConfig = state.getVolumeConfig();
-
-            vConfig.setGridX(gridX);
-
-            vConfig.setGridY(gridY);
-
-            vConfig.setStepSizeXMm(actualStepSizeX);
-
-            vConfig.setStepSizeYMm(actualStepSizeY);
-
-            vConfig.setPattern(VolumeScanConfig.ScanPattern.SNAKE);
-
-
-
-            // 3. Reallocate and clear buffer with fresh clean state
-
             volumeBuffer.reallocate(vConfig);
-
             volumeBuffer.clear(vConfig);
-
-
-
-            // 4. Drain any leftover frames in queue
-
             dataQueue.clear();
-
-
-
-            // 5. Trigger repaint
-
             volume3DPanel.repaint();
-
-            statusBar.setMessage("Chamber Scan in progress: " + gridX + " x " + gridY + " grid (" + (gridX * gridY) + " pts)...");
-
+            statusBar.setMessage("Chamber Scan in progress: " + vConfig.getGridX() + " x " + vConfig.getGridY() + " grid (" + (vConfig.getGridX() * vConfig.getGridY()) + " pts)...");
         }
 
     }
@@ -1492,7 +1513,7 @@ public final class ScannerController {
 
         VolumeScanConfig vc = state.getVolumeConfig();
 
-        double newMax = Math.clamp(vc.getGateMaxDepthMm() + deltaMm, vc.getGateMinDepthMm() + 0.5, 100.0);
+        double newMax = Math.clamp(vc.getGateMaxDepthMm() + deltaMm, vc.getGateMinDepthMm() + 0.5, 150.0);
 
         vc.setGateMaxDepthMm(newMax);
 

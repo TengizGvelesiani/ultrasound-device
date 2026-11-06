@@ -21,6 +21,20 @@ public enum ColormapType {
         return label;
     }
 
+    public String getShortName() {
+        return switch (this) {
+            case TURBO -> "Turbo";
+            case AMBER -> "Amber";
+            case JET -> "Jet";
+            case VIRIDIS -> "Viridis";
+            case COOL_WARM -> "CoolWarm";
+            case BONE -> "Bone";
+            case HOT -> "Hot";
+            case INFERNO -> "Inferno";
+            case GRAY -> "Gray";
+        };
+    }
+
     public ColormapType next() {
         ColormapType[] values = values();
         return values[(this.ordinal() + 1) % values.length];

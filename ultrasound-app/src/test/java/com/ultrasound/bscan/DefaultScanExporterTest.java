@@ -92,6 +92,51 @@ class DefaultScanExporterTest {
     }
 
     @Test
+    void testExportLineScan2DWithDiagnostics() throws IOException {
+        ScanConfig config = new ScanConfig();
+        ScanBuffer buffer = new ScanBuffer(config.getNumSamples());
+        ScannerState state = new ScannerState();
+        state.setViewMode(ViewMode.MODE_2D);
+
+        buffer.prepareLineScan(20, 2.0, "X", 0.0, 0.10);
+
+        byte[] raw = new byte[config.getNumSamples()];
+        float[] proc = new float[config.getNumSamples()];
+        int sample10mm = config.getSampleIndexForDepth(10.0);
+        int sample13mm = config.getSampleIndexForDepth(13.5);
+        raw[sample10mm] = (byte) 120;
+        proc[sample10mm] = 120.0f;
+        raw[sample13mm] = (byte) 220;
+        proc[sample13mm] = 220.0f;
+
+        for (int i = 0; i < 20; i++) {
+            buffer.addSweepLine(raw, proc);
+        }
+
+        BufferedImage img = new BufferedImage(400, 300, BufferedImage.TYPE_INT_RGB);
+        ScanExporter.ExportResult result = exporter.exportScan(img, buffer, config, state);
+
+        assertNotNull(result);
+        assertEquals(2, result.additionalDataFiles().size());
+
+        File rawCsv = result.dataFile();
+        File procCsv = result.additionalDataFiles().get(0);
+        File summaryCsv = result.additionalDataFiles().get(1);
+
+        assertTrue(rawCsv.exists());
+        assertTrue(procCsv.exists());
+        assertTrue(summaryCsv.exists());
+
+        List<String> rawLines = Files.readAllLines(rawCsv.toPath());
+        assertTrue(rawLines.get(0).contains("Ultrasound B-Scan Acquisition Export"));
+        assertTrue(rawLines.stream().anyMatch(l -> l.contains("Line_000_X_0.00mm")));
+
+        List<String> summaryLines = Files.readAllLines(summaryCsv.toPath());
+        assertTrue(summaryLines.get(0).contains("2D Line Scan Echo Diagnostic"));
+        assertTrue(summaryLines.stream().anyMatch(l -> l.contains("YES")));
+    }
+
+    @Test
     void testExportVolumeScan3D() throws IOException {
         ScanConfig config = new ScanConfig();
         ScannerState state = new ScannerState();
@@ -245,7 +290,7 @@ class DefaultScanExporterTest {
         assertNotNull(mvResult.frontImage());
         assertNotNull(mvResult.sideImage());
 
-        DefaultScanExporter liveExporter = new DefaultScanExporter(new File("scans").getAbsoluteFile());
+        DefaultScanExporter liveExporter = new DefaultScanExporter(new File(tempDir, "scans"));
         ScanExporter.ExportResult exportResult = liveExporter.exportVolumeScanMultiView(mvResult, volumeBuffer, vConfig, config, state);
 
         assertNotNull(exportResult);
