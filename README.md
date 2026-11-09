@@ -1,260 +1,360 @@
-# Single Element Ultrasound Imaging & Volumetric Scanning System
+# Open Ultrasound: Single-Element Pulse-Echo & 3D Scanning Rig
 
-An open-source hardware, FPGA firmware, and high-performance software project for single-element pulse-echo ultrasound imaging. This repository contains the complete design files:
+An open-source pulse-echo ultrasound imaging system built from the ground up. This repository contains the complete hardware, FPGA firmware, and software stack for capturing both 2D B-scan cross-sections and 3D volumetric surface scans of submerged targets:
+
 * **Analog Front End (AFE) & High-Voltage Pulser PCB** (Altium Designer)
-* **Modular FPGA Digital Signal Processing & Stepper Gantry Firmware** (VHDL / Xilinx Vivado)
-* **Real-time 2D B-Scan & 2.5D / 3D Volumetric Visualization Application** (Java 21 / Maven)
+* **Real-Time DSP & Gantry Controller Firmware** (VHDL / Digilent Arty-S7)
+* **Desktop Acquisition & 3D Visualization App** (Java 21 / Swing)
 
 ---
 
-## System Architecture
+## What Is This?
+
+Commercial ultrasound machines are expensive black boxes. If you want to experiment with custom beamforming, acoustic non-destructive testing (NDT), or high-frequency surface mapping, getting raw RF data out of vendor hardware is notoriously difficult.
+
+This project is a completely open, benchtop-friendly ultrasound rig. It uses a single 5 MHz immersion transducer mounted on a motorized 2-axis (dual-Y, single-X) Cartesian gantry over a water immersion tank. An FPGA fires nanosecond high-voltage pulses, coordinates time-gain amplification, digitizes echoes at 20 MSPS, demodulates them to baseband in hardware, and streams the acoustic envelope over high-speed UART to a modern Java desktop application for live 2D and 3D visualization.
 
 ```
-+---------------------------------------------------------------------------------------------------------+
-|                                        ANALOG FRONT END (AFE)                                           |
-|                                                                                                         |
-|  [ HV Power / Relay ] ---> [ MD1213 Driver + TC6320 FETs ] ---> [ 5 MHz Transducer ]                     |
-|                                                                          |                              |
-|  [ AD9226 20 MSPS ADC ] <-- [ AD8331 VGA ] <--- [ T/R Switch / Clamp ] <--+                              |
-|           |                       ^                                                                     |
-|           |                       |                                                                     |
-|           |            [ MCP4821 SPI DAC (TGC) ]                                                        |
-+-----------|-----------------------|---------------------------------------------------------------------+
-            |                       |
-            v                       v
-+---------------------------------------------------------------------------------------------------------+
-|                                            FPGA FIRMWARE                                                |
-|                                                                                                         |
-|  [ pulser_fsm ] ----------> Relay, OE, INA, INB Timing (60ns Strike, 40ns Dead-Time, 500ns Active Damp)|
-|        ^                    • Benchtop Live Mode: Free-running 100 Hz PRF                               |
-|        |                    • Scan Mode: Position-Triggered Firing (every 40 microsteps = 0.1 mm)        |
-|        |                                                                                                |
-|  [ stepper_controller ] --> Dual Locked Bottom Y-Axis (Y1 + Y2) & Top X-Axis Steppers (1/16 Microstep)   |
-|        |                    • Autonomous Serpentine Raster Trajectory Engine                            |
-|        |                    • Hardware Gating: Pulser inhibited during Y indexing                       |
-|        |                    • acq_busy Flow Control Interlock (Zero Dropped Frames)                     |
-|        v                                                                                                |
-|  [ dsp_pipeline ] --------> EWMA DC Rejection -> 5 MHz Mix (fs/4) -> FIR Lowpass -> CORDIC -> Log LUT  |
-|        |                    (Decimated 4:1 to 5 MSPS Baseband Envelope)                                 |
-|        v                                                                                                |
-|  [ acquisition_ram ] -----> 1024-Byte BRAM Buffer -> 2,000,000 Baud UART Streamer                       |
-|        ^                                                                                                |
-|  [ uart_rx_protocol ] ----> 2 Mbaud Midpoint RX & 16-Byte Host Command Protocol Decoder (XOR Checksum) |
-+--------|------------------------------------------------------------------------------------------------+
-         |
-         |  2 Mbaud Binary Telemetry: [0xFF, 0xAA, 0x55, 0x00] + 1024 Envelope Bytes
-         |  16-Byte Binary Host Commands: [0xA5, 0x5A, CMD, AXIS, DIR, PARAM1..3, CHKSUM]
-         v
-+---------------------------------------------------------------------------------------------------------+
-|                                  JAVA HOST APPLICATION (ultrasound-app)                                 |
-|                                                                                                         |
-|  • Real-Time A-Scan: 1D RF Envelope Waveform, Ring-Down Blanking, Dynamic Peak Echo Marker (mm & Amp)  |
-|  • 2D B-Scan: Sweep Pass & Continuous Rolling Waterfall Imaging, Instant Squelch & Contrast Reprocess  |
-|  • 2.5D / 3D Volumetric: Shaded Topography (Lambertian + Blinn-Phong + Depth Sorting), C-Scan MIP     |
-|  • Gantry & Motion Control: Dual-Y Locked & X Jogging, Speed Calibration, 1-Click Chamber Scan Trigger |
-|  • Multi-View 3D Snapshot Suite: Automated 7-View PNG Report Sheet + Calibrated Colorbars + CSV        |
-|  • Integrated Synthetic Ultrasound Simulator: Acoustic immersion tank & 3D coin phantom modeling      |
-+---------------------------------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------------+
+|                                    TRANSDUCER & TANK                                  |
+|                                                                                       |
+|   [Water Tank / Sample] <======== (5 MHz Acoustic Wave) ========> [Immersion Probe]   |
++---------------------------------------------------------------------------|-----------+
+                                                                            |
+                                            +-------------------------------+
+                                            | (High-Voltage Pulse / Microvolt Echoes)
+                                            v
++---------------------------------------------------------------------------------------+
+|                                ANALOG FRONT END (PCB)                                 |
+|                                                                                       |
+|   HV Supply (+/-50V..100V) ---> [MD1213 Driver + TC6320 FETs]                         |
+|                                         |                                             |
+|                                         v (Fast HV Strike)                            |
+|                                [Diode Bridge / TR Clamp]                              |
+|                                         |                                             |
+|                                         v (Echoes Only)                               |
+|   [MCP4821 SPI DAC] ----------> [AD8331 VGA & LNA]                                    |
+|   (Time-Gain Compensation)              |                                             |
+|                                         v                                             |
+|                                 [AD9226 20 MSPS ADC]                                  |
++------------------------------------------|--------------------------------------------+
+                                           | 12-bit Parallel Bus @ 20 MHz
+                                           v
++---------------------------------------------------------------------------------------+
+|                               DIGILENT ARTY-S7 (SPARTAN-7)                            |
+|                                                                                       |
+|   [pulser_fsm] ---------> HV gate timing (60ns strike, 40ns dead-time, 500ns damp)    |
+|   [tgc_controller] -----> Generates SPI ramp curve synchronized to each strike        |
+|   [stepper_controller] -> Dual locked Y-axis (Y1+Y2) & X carriage (1/16 microstep)    |
+|                           • Position-triggered firing: pulse every 40 microsteps      |
+|                           • Hardware pulser gating during line indexing               |
+|                           • acq_busy flow-control handshake                           |
+|   [dsp_pipeline] -------> DC reject -> Multiplier-less 5 MHz mix -> FIR -> CORDIC    |
+|                           • Logarithmic compression BRAM LUT (log_lut.coe)            |
+|                           • 4:1 decimation to 5 MSPS baseband envelope                |
+|   [acquisition_ram] ----> 1024-byte BRAM buffer -> 2,000,000 baud UART streamer      |
++------------------------------------------|--------------------------------------------+
+                                           | 2 Mbaud Binary Telemetry over USB
+                                           v
++---------------------------------------------------------------------------------------+
+|                          JAVA HOST APPLICATION (ultrasound-app)                       |
+|                                                                                       |
+|   • Live 1D A-Scan: RF envelope trace, ring-down blanking, peak echo tracker (mm)     |
+|   • Real-Time 2D B-Scan: Sweep pass & continuous waterfall modes                      |
+|   • 2.5D / 3D Topography: Shaded surface, wireframe mesh, and C-scan MIP projection   |
+|   • 1-Click Multi-View Suite: Exports 7 PNG views + raw CSV data table                |
+|   • Gantry Controls: Jogging, speed calibration, and 1-click autonomous chamber scan  |
+|   • Built-in Simulator: Full acoustic tank & 3D coin phantom modeling (no HW needed!) |
++---------------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 1. Hardware & Analog Front End (AFE)
-* **High-Voltage Pulser:** Driven by an **MD1213** high-speed dual-MOSFET driver paired with a **TC6320** complementary MOSFET pair. The FPGA generates nanosecond-precise half-bridge excitation bursts ($3$ cycles at $5\text{ MHz}$, $60\text{ ns}$ strike, $40\text{ ns}$ shoot-through dead-times, and $500\text{ ns}$ active ringing damp).
-* **Variable Gain Amplifier (VGA):** Features an **AD8331** ultralow-noise VGA optimized for medical ultrasound. Gain is dynamically ramped by an **MCP4821** 12-bit SPI DAC generating hardware Time-Gain Compensation (TGC) to compensate for acoustic attenuation ($e^{-\alpha f z}$).
-* **Data Acquisition (ADC):** An **AD9226** 12-bit parallel ADC samples high-frequency RF echoes at $20\text{ MSPS}$.
+## How It Works
+
+### 1. The Analog Front End (AFE)
+Capturing ultrasound echoes requires dealing with an extreme dynamic range: you have to slam the transducer with a short high-voltage burst (up to 100 V) to ring the piezo crystal, and then listen for faint microvolt-level echoes returning microseconds later from acoustic impedance boundaries.
+
+* **High-Voltage Pulser**: Uses a Microchip **MD1213** high-speed dual MOSFET driver paired with a **TC6320** complementary N/P MOSFET pair. The FPGA triggers precise half-bridge excitation bursts: a 60 ns strike, 40 ns dead time to prevent shoot-through, and a 500 ns active dampening pulse to quench transducer ringing so the near field doesn't get blinded.
+* **T/R Switch & Diode Clamp**: Fast diode bridge clamps the receiving line during the high-voltage transmit phase, protecting the sensitive receiver without adding heavy insertion loss.
+* **Time-Gain Compensation (TGC)**: Acoustic waves attenuate exponentially as they travel through a medium ($e^{-\alpha f z}$). Echoes from deep targets would be lost in the noise floor if gain were static. We use an Analog Devices **AD8331** ultralow-noise Variable Gain Amplifier (VGA) whose gain is ramped up in real time by an **MCP4821** 12-bit SPI DAC synchronized to each pulse strike.
+* **Digitization**: An **AD9226** 12-bit parallel ADC samples the conditioned RF echo waveform at 20 MSPS.
+
+The complete schematics and multi-layer PCB layout are in the [`PCB/`](PCB/) directory (Altium Designer).
 
 ---
 
-## 2. FPGA Digital Signal Processing & Motion Firmware
-The FPGA firmware is structured into dedicated, modular VHDL components coordinated by a structural top-level entity (`pulser_rtz`):
+### 2. FPGA DSP & Hardware Architecture (Digilent Arty-S7)
+All timing, digital filtering, and gantry motion logic runs inside a Xilinx Spartan-7 FPGA on an Arty-S7 board. The VHDL architecture is split into clean, modular blocks:
 
-| Module | File | Description |
+| Module | Source File | Role |
 | :--- | :--- | :--- |
-| **pulser_fsm** | [`pulser_fsm.vhd`](file:///C:/Projects/Ultrasound/ultrasound-device/FPGA/FPGA.srcs/sources_1/new/pulser_fsm.vhd) | HV relay pre-charge, gate driver enable, 3-cycle $5\text{ MHz}$ burst timing, shoot-through protection, active ringing damp, and dual-mode trigger control. |
-| **stepper_controller** | [`stepper_controller.vhd`](file:///C:/Projects/Ultrasound/ultrasound-device/FPGA/FPGA.srcs/sources_1/new/stepper_controller.vhd) | Dual locked bottom Y-axis motors (Y1+Y2) & top X carriage, $1/16$ microstepping, autonomous serpentine raster scanning, position-triggered pulser, and hardware gating. |
-| **dsp_pipeline** | [`dsp_pipeline.vhd`](file:///C:/Projects/Ultrasound/ultrasound-device/FPGA/FPGA.srcs/sources_1/new/dsp_pipeline.vhd) | EWMA DC baseline subtraction, multiplier-less quadrature mixing ($f_s/4$), FIR lowpass filtering, CORDIC envelope magnitude ($\sqrt{I^2+Q^2}$), log compression BRAM LUT, and $4:1$ decimation to $5\text{ MSPS}$. |
-| **tgc_controller** | [`tgc_controller.vhd`](file:///C:/Projects/Ultrasound/ultrasound-device/FPGA/FPGA.srcs/sources_1/new/tgc_controller.vhd) | Hardware Time-Gain Compensation SPI DAC ramp curve generator synchronized to pulser strike. |
-| **acquisition_ram** | [`acquisition_ram.vhd`](file:///C:/Projects/Ultrasound/ultrasound-device/FPGA/FPGA.srcs/sources_1/new/acquisition_ram.vhd) | $1024$-byte BRAM line buffer, $2,000,000\text{ baud}$ UART transmitter, and flow-control handshake (`acq_busy`). |
-| **uart_rx_protocol** | [`uart_rx_protocol.vhd`](file:///C:/Projects/Ultrasound/ultrasound-device/FPGA/FPGA.srcs/sources_1/new/uart_rx_protocol.vhd) | $2\text{ Mbaud}$ midpoint serial sampler and 16-byte host command protocol decoder with XOR checksum verification. |
-| **pulser_rtz** | [`top.vhd`](file:///C:/Projects/Ultrasound/ultrasound-device/FPGA/FPGA.srcs/sources_1/new/top.vhd) | Structural top-level entity integrating all subsystem modules and mapping physical I/O constraints. |
+| `pulser_fsm` | [`pulser_fsm.vhd`](FPGA/FPGA.srcs/sources_1/new/pulser_fsm.vhd) | Generates HV strike pulses, shoot-through protection, active damping, and relays. |
+| `tgc_controller` | [`tgc_controller.vhd`](FPGA/FPGA.srcs/sources_1/new/tgc_controller.vhd) | SPI driver generating the real-time analog gain ramp for the AD8331 VGA. |
+| `dsp_pipeline` | [`dsp_pipeline.vhd`](FPGA/FPGA.srcs/sources_1/new/dsp_pipeline.vhd) | EWMA DC filter, quadrature mixer, FIR lowpass, CORDIC envelope, and log compression. |
+| `acquisition_ram` | [`acquisition_ram.vhd`](FPGA/FPGA.srcs/sources_1/new/acquisition_ram.vhd) | 1024-byte BRAM line buffer and 2 Mbaud UART transmitter. |
+| `stepper_controller` | [`stepper_controller.vhd`](FPGA/FPGA.srcs/sources_1/new/stepper_controller.vhd) | Dual locked Y-axis and top X-axis motor driver, serpentine scanner, and position trigger. |
+| `uart_rx_protocol` | [`uart_rx_protocol.vhd`](FPGA/FPGA.srcs/sources_1/new/uart_rx_protocol.vhd) | Midpoint serial sampler decoding 16-byte host commands with XOR checksum verification. |
+| `pulser_rtz` | [`top.vhd`](FPGA/FPGA.srcs/sources_1/new/top.vhd) | Top-level entity wiring the submodules and mapping physical Arty-S7 I/O pins. |
 
-### Position-Triggered Pulser & Hardware Gating
-During continuous serpentine chamber scans, triggering on a free-running timer causes acceleration skew (stretched pixels at sweep edges) and serpentine comb/herringbone phase shift artifacts. 
+#### Multiplier-Less Quadrature Demodulation
+Because the ADC samples at 20 MSPS and our transducer center frequency is 5 MHz, the sampling frequency is exactly four times the carrier ($f_s = 4 f_0$). This makes digital quadrature mixing remarkably efficient:
+$$\cos(2\pi \cdot 0.25 \cdot n) = [1, 0, -1, 0, \dots]$$
+$$\sin(2\pi \cdot 0.25 \cdot n) = [0, 1, 0, -1, \dots]$$
 
-To solve this:
-1. **Position-Triggered Pulser**: When in chamber scan mode (`M_SCAN_SWEEP_X`), the pulser is slave-locked to the stepper displacement counter. Ultrasound excitation occurs strictly every $N$ microsteps (default $40\text{ microsteps} = 0.100\text{ mm}$ of carriage travel).
-2. **Hardware Gating during Line Indexing**: During Y-axis advancement (`M_SCAN_STEP_Y`) and idle, pulse generation is strictly inhibited so no diagonal or stationary frames pollute the 3D volume.
-3. **Flow Control Interlock**: `stepper_controller` checks `acquisition_ram.acq_busy` before advancing past a pulse interval, guaranteeing zero dropped frames even at maximum gantry velocity.
-4. **Benchtop Fallback**: When idle or jogging manually, the FPGA automatically reverts to the safe free-running $100\text{ Hz}$ PRF timer for real-time acoustic feedback.
+Mixing down to in-phase ($I$) and quadrature ($Q$) baseband components requires zero hardware DSP multipliers—just simple sign-inversion and multiplexing. The mixed signals pass through an FIR lowpass filter, followed by a pipelined CORDIC magnitude engine calculating $\sqrt{I^2 + Q^2}$.
 
----
-
-## 3. Java Host Application (`ultrasound-app`)
-A modern, dark-themed Java 21+ desktop application replacing legacy Python scripts for low-latency acquisition and rendering:
-
-* **Real-time 2D B-Scan Display**: Dual-mode Sweep Pass and Continuous Waterfall display with medical colormaps (`Bone`, `Hot`, `Inferno`, `Grayscale`).
-* **Real-Time 1D A-Scan Window**: Live RF envelope display with ring-down blanking gate ($0\dots 60$ samples) and real-time echo peak detector displaying millimeter depth and echo amplitude ($0\dots 255$).
-* **Interactive Dynamic DSP**: Real-time Squelch and Contrast Gain sliders that instantly re-filter already recorded frozen sweeps without re-scanning.
-* **2.5D / 3D Volumetric Visualization**: Real-time 3D rendered surface topography with smooth Lambertian hill-shading, Blinn-Phong diffuse lighting, and Painter's algorithm depth sorting that completely eliminates polygon overlap and visual tearing.
-* **Camera Navigation & Presets**: 6-DOF camera orbit (left drag), pan (right drag), zoom (mouse wheel), and instant hotkeys (`[1]` Isometric, `[2]` Top-Down C-Scan, `[3]` Front XZ, `[4]` Side YZ, `[5]` Reverse Isometric, `[0]` Reset).
-* **Multi-View 3D Snapshot Suite (`[S]`)**: Generates **7 distinct PNG visualizations** in one click:
-  1. `_multiview.png`: Master 4-in-1 Report Sheet ($1600 \times 1100$) combining Top-Down, 3D Isometric, Front XZ, and Side YZ views with calibrated colorbars and acquisition metadata.
-  2. `_iso.png`: Isometric Perspective 3D View.
-  3. `_top.png`: Top-Down En-Face View (C-Scan XY Map).
-  4. `_front.png`: Front Elevation View (XZ Cross-Section).
-  5. `_side.png`: Side Elevation View (YZ Cross-Section).
-  6. `_back_iso.png`: Reverse Angle Isometric View.
-  7. `_active.png`: Current User Viewport.
-  8. Raw CSV Data Table (`_data.csv`).
-* **Stage & Motor Control Panel**:
-  * Real-time gantry coordinates display $(X, Y)$ in millimeters and microsteps.
-  * Manual jog buttons for $X$ carriage and dual locked bottom $Y$ motors (both bottom motors guaranteed to move in unison).
-  * Jog step size dropdown ($0.1\text{ mm}$, $0.5\text{ mm}$, $1.0\text{ mm}$, $5.0\text{ mm}$, $10.0\text{ mm}$, $25.0\text{ mm}$).
-  * Interactive gantry speed slider ($1.0\dots 30.0\text{ mm/s}$).
-  * Container / chamber dimension inputs ($X$, $Y$, line spacing $\Delta Y$, steps/mm calibration).
-  * Styled hero button: `TRIGGER FULL CHAMBER SCAN`.
-* **Integrated Synthetic Ultrasound Simulator**: Models an acoustic immersion tank with a submerged 3D circular coin phantom, relief engraving, metal backing plate, and Gaussian speckle noise.
+The resulting envelope is decimated 4:1 down to 5 MSPS (giving 1024 depth samples over 204.8 µs, or roughly 151.5 mm of one-way depth in water) and passed through a 1024-entry BRAM lookup table ([`log_lut.coe`](log_lut.coe)) for dynamic range logarithmic compression into an 8-bit display value (0–255).
 
 ---
 
-## Binary Communication Protocols
+### 3. Motion Control & Position-Triggered Scanning
 
-### 1. Host-to-FPGA Command Protocol (16 Bytes Fixed)
-Transmitted over UART at $2,000,000\text{ baud}$ ($8\text{N}1$):
+The scanner uses a 3-axis mechanical gantry:
+* **Dual-Y Lead Screws (Motors Y1 & Y2)**: If you drive a wide gantry with a single lead screw, it binds and racks. The FPGA drives two independent bottom stepper drivers with identical step and direction pulses in hardware lockstep, guaranteeing the gantry remains perfectly square.
+* **Top X Carriage (Motor X)**: Carries the immersion probe across the target.
 
-| Byte Offset | Field | Description |
-| :--- | :--- | :--- |
-| `0` | `0xA5` | Sync Byte 1 |
-| `1` | `0x5A` | Sync Byte 2 |
-| `2` | `CMD` | Command ID (`0x00`: HALT, `0x01`: JOG, `0x02`: CHAMBER_SCAN, `0x03`: SET_SPEED, `0x04`: ZERO) |
-| `3` | `AXIS` | Target Axis (`0x01`: X, `0x02`: Y [Dual Locked]) or $\Delta X$ steps for Chamber Scan |
-| `4` | `DIR` | Direction (`0x00`: Negative, `0x01`: Positive) |
-| `5 .. 8` | `PARAM 1` | 32-bit unsigned Big-Endian: Jog Steps / Chamber Total X Steps |
-| `9 .. 12` | `PARAM 2` | 32-bit unsigned Big-Endian: Step Half-Period Cycles / Chamber Total Y Steps |
-| `13 .. 14` | `PARAM 3` | 16-bit unsigned Big-Endian: Chamber Delta Y Line Increment Steps |
-| `15` | `CHECKSUM` | XOR sum of bytes `2 .. 14` |
+```
+       [Top X-Axis Carriage: Transducer Mount]
+           |=====[========]=====|
+           |                    |
+  [Y1 Lead Screw]          [Y2 Lead Screw]
+  (Left Rail)              (Right Rail)
+           |                    |
+           +--------------------+
+              (Dual-Y Lockstep)
+```
 
-### 2. FPGA-to-Host Telemetry Protocol (1028 Bytes Fixed)
-Streamed over UART at $2,000,000\text{ baud}$ ($8\text{N}1$):
+#### Why Position-Triggered Firing?
+If you fire pulses on a free-running timer while motors are moving, you get two nasty artifacts:
+1. **Acceleration distortion**: The gantry speeds up at the start of a sweep and slows down at the end. A timer stretches pixels at the edges and squashes them in the middle.
+2. **Serpentine comb/herringbone shift**: When scanning back and forth (boustrophedon), slight mechanical latency or timing drift causes odd and even scan rows to misalign into an ugly zigzag pattern.
 
-| Byte Offset | Field | Description |
-| :--- | :--- | :--- |
-| `0 .. 3` | `[0xFF, 0xAA, 0x55, 0x00]` | Frame Synchronization Header |
-| `4 .. 1027` | `ENVELOPE[1024]` | 1024 baseband envelope samples ($5\text{ MSPS}$ decimated, log-compressed $0\dots 255$) |
+To fix this, the FPGA pulser is **slave-locked to the stepper position counter**:
+* In chamber scan mode, the pulser fires strictly every 40 microsteps ($0.100\text{ mm}$ of travel with 400 steps/mm calibration).
+* During Y indexing steps, the pulser is strictly gated off so no diagonal movement pollutes the volume.
+* The stepper controller checks `acq_busy` before advancing, ensuring zero dropped scan lines even at high gantry velocities.
+* When the scanner is parked or jogged manually, it reverts to a gentle 100 Hz free-running benchtop pulse for live alignment.
 
 ---
 
-## Repository Structure
+### 4. Desktop Acquisition Application (`ultrasound-app`)
+
+Written in Java 21 using lightweight Swing and a custom software 3D rasterizer, the host application runs without external dependencies or native driver headaches.
+
+```
++---------------------------------------------------------------------------------------+
+|  ULTRASOUND SCANNER - [LIVE ACQUISITION]                          [COM10 - 2,000,000] |
++---------------------------------------------------------------------------------------+
+|                                                          | [1D A-Scan Envelope]       |
+|  [2D B-Scan Waterfall / 3D Topographic Surface]          | Peak: 24.3 mm | Amp: 218   |
+|                                                          | /\_/\                      |
+|                                                          |/     \________/\_______    |
+|                                                          +----------------------------+
+|                                                          | [Gantry Position & Speed]  |
+|                                                          | X: 45.2 mm   Y: 12.0 mm    |
+|                                                          | [<- X] [X ->]  [+Y] [-Y]   |
+|                                                          | Jog Step: [ 1.0 mm v ]     |
+|                                                          | Speed: 15 mm/s             |
+|                                                          +----------------------------+
+|                                                          | [Chamber Scan Setup]       |
+|                                                          | W: 50 mm  H: 50 mm  dY:1mm |
+|                                                          | [ TRIGGER FULL CHAMBER ]   |
++---------------------------------------------------------------------------------------+
+| Colormap: [Bone v] | Squelch: 25 | Gain: 1.4x | View: 3D Surface | Status: Ready      |
++---------------------------------------------------------------------------------------+
+```
+
+#### Key Capabilities:
+* **Real-time 2D B-Scan**: Sweep mode (records single clean passes) and continuous waterfall mode (rolling sonar display).
+* **Live 1D A-Scan Window**: Real-time RF envelope line, ring-down blanking gate (0–60 samples), and automatic peak echo detector displaying depth in millimeters and amplitude.
+* **Instant Dynamic DSP**: Sliders for squelch and contrast gain re-process already-frozen scan buffers in memory without re-running the physical scan.
+* **2.5D / 3D Surface Topography**: Renders 3D relief with smooth Lambertian hill-shading, Blinn-Phong specular highlights, Painter's algorithm depth sorting, and dynamic depth-gated colormapping.
+* **6-DOF Interactive Camera**: Orbit (left click & drag), pan (right click & drag), zoom (mouse wheel), and instant preset hotkeys (`[1]` Isometric, `[2]` Top-down C-scan, `[3]` Front XZ, `[4]` Side YZ, `[5]` Reverse).
+* **Automated 7-View Snapshot Suite (`[S]`)**: Generates 7 timestamped PNGs and a raw CSV data table in a single click:
+  1. `01_Overview_MultiView_Report.png` (1600 × 1100 master 4-in-1 sheet with colorbars and metadata)
+  2. `02_TopDown_CScan_XY.png`
+  3. `03_Isometric_3D_Surface.png`
+  4. `04_Front_Elevation_XZ.png`
+  5. `05_Side_Elevation_YZ.png`
+  6. `06_Reverse_Isometric_Back.png`
+  7. `07_Active_Viewport.png`
+  8. `Data_3D_Volume_Matrix.csv`
+* **Synthetic Acoustic Simulator**: Launching with `--sim` runs a physics-based water tank simulation with submerged coin targets, relief engravings, and acoustic speckle noise. You can test the entire application and 3D rendering pipeline without touching hardware.
+
+---
+
+## Communication Protocols
+
+The FPGA and PC communicate over standard USB-UART at **2,000,000 baud** (8N1).
+
+### 1. Host Commands (PC to FPGA - 16 Bytes Fixed)
+
+```
+Byte:   0     1     2     3     4     5..8        9..12       13..14      15
+     [ 0xA5  0x5A  CMD  AXIS   DIR   PARAM1      PARAM2      PARAM3     CHKSUM ]
+```
+
+* `CMD`: `0x00` HALT, `0x01` JOG, `0x02` CHAMBER_SCAN, `0x03` SET_SPEED, `0x04` ZERO
+* `AXIS`: `0x01` X carriage, `0x02` Dual-Y locked motors (or $\Delta X$ steps for chamber scans)
+* `DIR`: `0x00` Negative, `0x01` Positive
+* `PARAM 1`: 32-bit unsigned (Big-Endian) jog steps or total chamber X steps
+* `PARAM 2`: 32-bit unsigned (Big-Endian) step half-period clock cycles or total chamber Y steps
+* `PARAM 3`: 16-bit unsigned (Big-Endian) chamber Y line increment steps
+* `CHECKSUM`: XOR sum of bytes 2 through 14
+
+### 2. Telemetry Packet (FPGA to PC - 1028 Bytes Fixed)
+
+```
+Byte:   0     1     2       3             4 .. 1027
+     [ 0xFF  0xAA  0x55  STATUS_BYTE   ENVELOPE_SAMPLES[1024] ]
+```
+
+* Bytes 0–2: Fixed synchronization pattern (`0xFF`, `0xAA`, `0x55`)
+* Byte 3 (`STATUS_BYTE`): Real-time hardware flags latched from the stepper controller:
+  * Bit 7: Scan active
+  * Bit 6: Scan complete
+  * Bit 5: Line start marker
+  * Bit 4: Line end marker
+  * Bit 3: Current X direction (`1` = positive, `0` = negative)
+  * Bits 2..0: Hardware line index counter
+* Bytes 4–1027: 1024 baseband envelope samples (5 MSPS, 8-bit log-compressed, 0–255)
+
+---
+
+## Hardware Wiring & Pin Mapping
+
+The FPGA design targets the **Digilent Arty-S7** (Spartan-7). All pin assignments are defined in [`constraints.xdc`](FPGA/FPGA.srcs/constrs_1/new/constraints.xdc).
+
+### PMOD Headers
+
+| Header / Pin | FPGA Pin | Signal | Description |
+| :--- | :--- | :--- | :--- |
+| **JA 1** | `L17` | `relay` | High-voltage pre-charge relay control |
+| **JA 5** | `M16` | `cs` | MCP4821 SPI DAC Chip Select (TGC) |
+| **JA 6** | `M17` | `sck` | MCP4821 SPI DAC Clock |
+| **JA 7** | `M18` | `sci` | MCP4821 SPI DAC Data In |
+| **JA 8** | `N18` | `clk` | 20 MHz clock out to AD9226 ADC |
+| **JB 1** | `P17` | `otr` | AD9226 Out-of-Range indicator |
+| **JB 2..4, 5..8** | Multiple | `adc_data[12..6]` | AD9226 parallel data upper bits |
+| **JC 1..4, 8** | Multiple | `adc_data[5..1]` | AD9226 parallel data lower bits |
+| **JC 5** | `U16` | `ina` | MD1213 Driver Input A (P-FET gate drive) |
+| **JC 6** | `P13` | `inb` | MD1213 Driver Input B (N-FET gate drive) |
+| **JC 7** | `R13` | `oe` | MD1213 Output Enable |
+| **USB-UART** | `R12` / `V12`| `uart_tx` / `rx` | 2 Mbaud serial communication to host PC |
+
+### Stepper Motor Interface (ChipKit Header)
+
+| Motor Axis | STEP Pin | DIR Pin | SLEEP / RESET | Microstep Pins (MS1..MS3) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Motor 1 (Y1 Left)** | `io1` (`N13`) | `io0` (`L13`) | `io6` / `io5` | `io2`..`io4` (configured for 1/16) |
+| **Motor 2 (Y2 Right)**| `io8` (`R15`) | `io7` (`V17`) | `io9` / `io10` | `io11`..`io13` (configured for 1/16) |
+| **Motor 3 (Top X)**   | `io27` (`T11`)| `io26` (`U11`)| `io31` / `io32`| `io28`..`io30` (configured for 1/16) |
+
+---
+
+## Repository Tour
 
 ```
 ultrasound-device/
-├── .gitignore                     # Comprehensive repository ignore rules
-├── README.md                      # System documentation and hardware/firmware overview
-├── log_lut.coe                    # 1024-word BRAM Logarithmic Compression coefficients
-├── Pulser_PCB/                    # Altium Designer project files
+├── PCB/                           # Altium Designer hardware files
 │   ├── Pulser.PrjPcb              # Master project
-│   ├── Pulser.SchDoc              # HV pulser, VGA, and ADC schematics
-│   └── Pulser.PcbDoc              # High-speed PCB layout and routing
-├── FPGA/                          # Xilinx Vivado Project
+│   ├── Pulser.SchDoc              # HV pulser, T/R clamp & power schematics
+│   ├── Analog Front End.SchDoc    # AD8331 VGA & MCP4821 TGC DAC
+│   ├── ADC.SchDoc                 # AD9226 20 MSPS ADC interface
+│   ├── Boost Converter.SchDoc     # High-voltage DC/DC booster
+│   ├── Pulser.PcbDoc              # High-speed routing & layout
+│   └── Output Gerber/             # Fabrication Gerbers & drill files
+├── FPGA/                          # Xilinx Vivado project (Arty-S7 / Spartan-7)
 │   ├── FPGA.xpr                   # Vivado project file
 │   └── FPGA.srcs/
 │       ├── constrs_1/new/
-│       │   └── constraints.xdc    # Physical pin mapping and clock timing constraints
+│       │   └── constraints.xdc    # Pin constraints & clock timing
 │       └── sources_1/new/
-│           ├── top.vhd            # Structural top-level entity (pulser_rtz)
-│           ├── pulser_fsm.vhd     # HV pulser sequence & circuit protection
-│           ├── tgc_controller.vhd # Time-Gain Compensation SPI DAC driver
-│           ├── dsp_pipeline.vhd   # Quadrature mixer, FIR, CORDIC & log LUT
-│           ├── acquisition_ram.vhd# BRAM buffer & 2 Mbaud UART TX
-│           ├── uart_rx_protocol.vhd# 2 Mbaud UART RX command decoder
-│           └── stepper_controller.vhd # Stepper gantry & position-triggered raster engine
-├── ultrasound-app/                # Java 21+ Desktop Acquisition & Visualization Application
-│   ├── pom.xml                    # Maven configuration and shade packaging
-│   ├── README.md                  # Java application user guide and controls reference
-│   └── src/
-│       ├── main/java/com/ultrasound/bscan/
-│       │   ├── UltrasoundApp.java          # Main entry point and CLI parser
-│       │   ├── controller/                 # Scanner and Stepper motor services
-│       │   ├── dsp/                        # Peak detection, squelch, and contrast processing
-│       │   ├── io/                         # Serial communications, simulation, protocol
-│       │   ├── model/                      # A-Scan, B-Scan, Volume buffer models
-│       │   ├── storage/                    # Multi-view snapshot and CSV data export
-│       │   ├── ui/                         # Swing dark-themed UI components and 3D renderer
-│       │   └── colormap/                   # Medical colormaps (Bone, Hot, Inferno, Gray)
-│       └── test/java/com/ultrasound/bscan/ # 35 JUnit 5 test suites
+│           ├── top.vhd            # pulser_rtz top-level entity
+│           ├── pulser_fsm.vhd     # HV excitation & active damp timing
+│           ├── tgc_controller.vhd # SPI ramp generator for VGA
+│           ├── dsp_pipeline.vhd   # Mixer, FIR, CORDIC & log compression
+│           ├── acquisition_ram.vhd# BRAM line buffer & 2 Mbaud UART TX
+│           ├── uart_rx_protocol.vhd# Host command parser & XOR checksum
+│           └── stepper_controller.vhd # Dual-Y lockstep & position trigger
+├── log_lut.coe                    # BRAM coefficient file for logarithmic compression
+└── ultrasound-app/                # Java 21 desktop acquisition & 3D visualizer
+    ├── pom.xml                    # Maven build file
+    ├── mvnw.cmd                   # Maven wrapper for Windows
+    ├── scans/                     # Output directory for exported PNGs & CSVs
+    └── src/
+        ├── main/java/com/ultrasound/bscan/  # Application source code
+        └── test/java/com/ultrasound/bscan/  # 55 automated unit tests
 ```
 
 ---
 
-## Getting Started
+## Quickstart Guide
 
-### Prerequisites
-* **Altium Designer** (for PCB viewing and fabrication output generation)
-* **Xilinx Vivado (2018.3 or newer)** (for FPGA synthesis and bitstream generation)
-* **Java Development Kit (JDK 21+)** (Java 21, 23, or 25 verified)
-* **Maven 3.8+** (or use the included `mvnw.cmd` wrapper in `ultrasound-app/`)
+### 1. Test Drive the Java App (No Hardware Needed)
+You can try out the full user interface, 2D B-scans, and 3D topographic reconstruction immediately using the built-in acoustic immersion simulator.
 
-### Building the FPGA Bitstream
-1. Open Xilinx Vivado.
+Make sure you have **JDK 21 or newer** installed:
+
+```cmd
+cd ultrasound-app
+
+# 1. Run the test suite (55 tests verify DSP, protocols, and 3D buffers)
+.\mvnw.cmd test -o
+
+# 2. Build the executable JAR
+.\mvnw.cmd package -DskipTests -o
+
+# 3. Launch straight into 3D Simulation Mode
+java -jar target/ultrasound-app-1.0.0.jar --sim --3d
+```
+
+### 2. Connect to Physical Hardware
+Once your FPGA bitstream is loaded and the board is plugged in via USB:
+
+```cmd
+# List available COM ports and connect
+java -jar target/ultrasound-app-1.0.0.jar -p COM10
+```
+
+### 3. Build & Flash the FPGA Bitstream
+1. Open **Xilinx Vivado (2018.3 or newer)**.
 2. Select **Open Project** and navigate to `FPGA/FPGA.xpr`.
-3. Click **Generate Bitstream** in Vivado to synthesize, implement, and generate `pulser_rtz.bit`.
-4. Program the target FPGA board using the Vivado Hardware Manager via JTAG.
-
-### Building & Running the Java Application
-Open a terminal in the `ultrasound-app/` directory:
-
-1. **Run Unit Tests (35/35 passing)**:
-   ```cmd
-   cd ultrasound-app
-   .\mvnw.cmd test -o
-   ```
-
-2. **Build Production Executable Application JAR**:
-   ```cmd
-   .\mvnw.cmd package -DskipTests -o
-   ```
-
-3. **Launch in 2.5D / 3D Simulation Mode (Instant Coin Phantom Test)**:
-   ```cmd
-   java -jar target/ultrasound-app-1.0.0.jar --sim --3d
-   ```
-
-4. **Launch Standard 2D B-Scan Mode**:
-   ```cmd
-   java -jar target/ultrasound-app-1.0.0.jar
-   ```
-
-5. **Connect Directly to Hardware COM Port**:
-   ```cmd
-   java -jar target/ultrasound-app-1.0.0.jar -p COM10
-   ```
+3. In the Flow Navigator, click **Generate Bitstream**. Vivado will run synthesis, implementation, and produce `pulser_rtz.bit`.
+4. Open the **Hardware Manager**, connect to your Arty-S7 board via JTAG, and program the device.
 
 ---
 
-## Key Shortcuts in Java Application
+## Keyboard Shortcuts
 
-| Shortcut | Action | Description |
+| Key | Action | Description |
 | :--- | :--- | :--- |
-| `[TAB]` or `[T]` | **Toggle 2D / 3D** | Switches between 2D B-Scan and 2.5D/3D Volumetric mode |
-| `[Y]` | **Cycle 3D Style** | Cycles between Shaded Surface, Wireframe Mesh, and C-Scan MIP |
-| `[1]` .. `[5]` / `[0]` | **Camera Snap** | `1`: Isometric, `2`: Top-Down, `3`: Front XZ, `4`: Side YZ, `5`: Reverse, `0`: Reset |
-| `[SPACE]` | **Pause / Resume** | Freezes live acquisition or resumes real-time scanning |
-| `[C]` | **Clear Buffers** | Clears the active 2D sweep or 3D volume buffer |
-| `[V]` | **Cycle Colormap** | Cycles: `Bone` (medical), `Hot`, `Inferno`, `Grayscale` |
-| `[S]` | **Save Scan** | Exports 2D B-Scan or full **3D Multi-View Suite (7 PNGs + CSV)** into `scans/` |
-| `[Z]` | **Depth Zoom** | Toggles between Full Depth ($151.4\text{ mm}$) and Near Field ($0\dots 60\text{ mm}$) |
-| `[` / `]` | **Squelch ±5** | Adjusts noise rejection threshold |
-| `-` / `+` | **Contrast ±0.2** | Adjusts contrast gain multiplier |
+| `[TAB]` or `[T]` | **Toggle 2D / 3D** | Switch between 2D B-Scan and 2.5D/3D Volumetric mode |
+| `[Y]` | **Cycle 3D Style** | Cycle between Shaded Surface, Wireframe Mesh, and C-Scan MIP |
+| `[1]` .. `[5]` / `[0]` | **Camera Snap** | `1`: Isometric, `2`: Top-down, `3`: Front XZ, `4`: Side YZ, `5`: Reverse, `0`: Reset |
+| `[SPACE]` | **Pause / Freeze** | Freeze live acquisition or resume scanning |
+| `[C]` | **Clear Buffer** | Clear active 2D sweep or 3D volume data |
+| `[V]` | **Cycle Colormap** | Cycle palettes: `Bone` (medical), `Hot`, `Inferno`, `Grayscale` |
+| `[S]` | **Save Scan** | Export full **3D Multi-View Suite (7 PNGs + CSV)** to `scans/` |
+| `[Z]` | **Depth Zoom** | Toggle between full depth (151.5 mm) and near-field gate (0–60 mm) |
+| `[` / `]` | **Squelch ±5** | Adjust noise threshold in real time |
+| `-` / `+` | **Contrast ±0.2**| Adjust contrast multiplier |
 
 ---
 
-## Disclaimer
+## Safety & High Voltage Notice
 
-**For educational, research, and experimental laboratory purposes only.** This hardware generates high-voltage pulses ($\pm 50\text{ V}\dots \pm 100\text{ V}$) and is not an approved medical device. It has not been evaluated or certified by the FDA, CE, or any other regulatory authority. Do not use this device on human subjects. The authors and contributors assume no liability for personal injury, circuit damage, or property loss resulting from the construction or use of this project.
+> **Caution: Experimental Hardware**
+>
+> This hardware generates high-voltage pulses ($\pm 50\text{ V}$ to $\pm 100\text{ V}$) with fast rise times adjacent to a water immersion tank.
+>
+> * **Not a medical device**: This system is designed solely for educational, research, and non-destructive testing (NDT) experiments on phantoms and inanimate objects. It has not been approved by the FDA, CE, or any medical regulatory agency.
+> * **Do not use on humans or animals.**
+> * Always double-check ground references between the high-voltage pulser board, the FPGA PMOD pins, and the transducer shield before energizing the high-voltage rails.
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE) - see the LICENSE file for details.
+This project is licensed under the [MIT License](LICENSE). Feel free to use, modify, and build upon it for your own research and hardware projects.
