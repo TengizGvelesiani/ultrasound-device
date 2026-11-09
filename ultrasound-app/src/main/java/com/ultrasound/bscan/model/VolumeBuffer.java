@@ -41,7 +41,8 @@ public final class VolumeBuffer {
     private float[] heightMapMm;      // Depth in mm for each (x, y)
     private float[] rawHeightMapMm;
     private float[] rawAmplitudeMap;
-    private boolean filterEnabled = false;
+    private boolean filterEnabled = true;
+    private double backlashCompensationMm = 0.0;
 
     private float[] amplitudeMap;     // Echo intensity 0..255 for each (x, y)
 
@@ -220,7 +221,13 @@ public final class VolumeBuffer {
 
 
 
-            int idx = currentY * gridX + currentX;
+            int effectiveX = currentX;
+            if (!forwardX && backlashCompensationMm > 0.0 && volumeConfig != null && volumeConfig.getStepSizeXMm() > 0) {
+                int offsetCells = (int) Math.round(backlashCompensationMm / volumeConfig.getStepSizeXMm());
+                effectiveX = Math.clamp(currentX + offsetCells, 0, gridX - 1);
+            }
+
+            int idx = currentY * gridX + effectiveX;
 
             if (idx >= 0 && idx < heightMapMm.length) {
 
@@ -242,13 +249,18 @@ public final class VolumeBuffer {
                     amplitudeMap[idx] = peak.amplitude();
                     if (rawAmplitudeMap != null) rawAmplitudeMap[idx] = amplitudeMap[idx];
 
+                    measuredMap[idx] = true;
+
                 } else {
 
+                    // Do not mark as valid measurement when specular echo dips below threshold
                     heightMapMm[idx] = (float) gateMax;
                     if (rawHeightMapMm != null) rawHeightMapMm[idx] = heightMapMm[idx];
 
                     amplitudeMap[idx] = 0.0f;
                     if (rawAmplitudeMap != null) rawAmplitudeMap[idx] = 0.0f;
+
+                    measuredMap[idx] = false;
 
                 }
 
@@ -274,8 +286,6 @@ public final class VolumeBuffer {
 
                 cScanMap[idx] = maxGatedAmp;
 
-                measuredMap[idx] = true;
-
 
 
                 // 3. Store full A-scan in 3D voxel volume
@@ -295,6 +305,10 @@ public final class VolumeBuffer {
             if (isScanComplete) {
 
                 isComplete = true;
+
+                if (filterEnabled) {
+                    applySpatialFiltersInternal();
+                }
 
                 return;
 
@@ -337,6 +351,10 @@ public final class VolumeBuffer {
                 } else {
 
                     isComplete = true;
+
+                    if (filterEnabled) {
+                        applySpatialFiltersInternal();
+                    }
 
                 }
 
@@ -389,18 +407,22 @@ public final class VolumeBuffer {
             if (peak != null && peak.detected() && peak.depthMm() >= gateMin && peak.depthMm() <= gateMax) {
 
                 heightMapMm[idx] = (float) Math.clamp(peak.depthMm(), gateMin, gateMax);
-                    if (rawHeightMapMm != null) rawHeightMapMm[idx] = heightMapMm[idx];
+                if (rawHeightMapMm != null) rawHeightMapMm[idx] = heightMapMm[idx];
 
                 amplitudeMap[idx] = peak.amplitude();
-                    if (rawAmplitudeMap != null) rawAmplitudeMap[idx] = amplitudeMap[idx];
+                if (rawAmplitudeMap != null) rawAmplitudeMap[idx] = amplitudeMap[idx];
+
+                measuredMap[idx] = true;
 
             } else {
 
                 heightMapMm[idx] = (float) gateMax;
-                    if (rawHeightMapMm != null) rawHeightMapMm[idx] = heightMapMm[idx];
+                if (rawHeightMapMm != null) rawHeightMapMm[idx] = heightMapMm[idx];
 
                 amplitudeMap[idx] = 0.0f;
-                    if (rawAmplitudeMap != null) rawAmplitudeMap[idx] = 0.0f;
+                if (rawAmplitudeMap != null) rawAmplitudeMap[idx] = 0.0f;
+
+                measuredMap[idx] = false;
 
             }
 
@@ -425,8 +447,6 @@ public final class VolumeBuffer {
             }
 
             cScanMap[idx] = maxGatedAmp;
-
-            measuredMap[idx] = true;
 
 
 
@@ -527,6 +547,10 @@ public final class VolumeBuffer {
                 } else {
 
                     isComplete = true;
+
+                    if (filterEnabled) {
+                        applySpatialFiltersInternal();
+                    }
 
                 }
 
@@ -730,10 +754,76 @@ public final class VolumeBuffer {
         }
     }
 
+    public double getBacklashCompensationMm() {
+        return backlashCompensationMm;
+    }
+
+    public void setBacklashCompensationMm(double mm) {
+        this.backlashCompensationMm = Math.clamp(mm, 0.0, 5.0);
+    }
+
+    /**
+     * Inpaints / fills missing specular dropout holes across the 2.5D surface
+     * using the 2D neighborhood median of valid measured samples.
+     */
+    public void inpaintMissingSamples() {
+        if (heightMapMm == null || measuredMap == null || gridX <= 0 || gridY <= 0) return;
+        float[] filledZ = Arrays.copyOf(heightMapMm, heightMapMm.length);
+        float[] filledA = Arrays.copyOf(amplitudeMap, amplitudeMap.length);
+        boolean[] filledM = Arrays.copyOf(measuredMap, measuredMap.length);
+        float[] winZ = new float[25];
+        float[] winA = new float[25];
+
+        for (int pass = 0; pass < 2; pass++) {
+            boolean filledAny = false;
+            for (int y = 0; y < gridY; y++) {
+                for (int x = 0; x < gridX; x++) {
+                    int idx = y * gridX + x;
+                    if (!filledM[idx]) {
+                        int count = 0;
+                        for (int dy = -1; dy <= 1; dy++) {
+                            int ny = y + dy;
+                            if (ny < 0 || ny >= gridY) continue;
+                            for (int dx = -1; dx <= 1; dx++) {
+                                int nx = x + dx;
+                                if (nx < 0 || nx >= gridX) continue;
+                                int nIdx = ny * gridX + nx;
+                                if (filledM[nIdx]) {
+                                    winZ[count] = filledZ[nIdx];
+                                    winA[count] = filledA[nIdx];
+                                    count++;
+                                }
+                            }
+                        }
+                        if (count > 0) {
+                            Arrays.sort(winZ, 0, count);
+                            filledZ[idx] = winZ[count / 2];
+                            float sumA = 0;
+                            for (int k = 0; k < count; k++) sumA += winA[k];
+                            filledA[idx] = sumA / count;
+                            filledM[idx] = true;
+                            filledAny = true;
+                        }
+                    }
+                }
+            }
+            if (!filledAny) break;
+        }
+
+        System.arraycopy(filledZ, 0, heightMapMm, 0, heightMapMm.length);
+        System.arraycopy(filledA, 0, amplitudeMap, 0, amplitudeMap.length);
+        System.arraycopy(filledM, 0, measuredMap, 0, measuredMap.length);
+    }
+
     public void applySpatialFiltersInternal() {
         if (rawHeightMapMm == null || heightMapMm == null || gridX <= 0 || gridY <= 0) return;
-        float[] tempZ = new float[rawHeightMapMm.length];
-        float[] tempA = new float[rawAmplitudeMap.length];
+
+        // Step 1: Inpaint missing/dropped specular samples first
+        inpaintMissingSamples();
+
+        // Step 2: 3x3 median filter across filled surface
+        float[] tempZ = new float[heightMapMm.length];
+        float[] tempA = new float[amplitudeMap.length];
         float[] windowZ = new float[9];
         float[] windowA = new float[9];
 
@@ -748,8 +838,8 @@ public final class VolumeBuffer {
                         if (nx < 0 || nx >= gridX) continue;
                         int nIdx = ny * gridX + nx;
                         if (measuredMap != null && measuredMap[nIdx]) {
-                            windowZ[count] = rawHeightMapMm[nIdx];
-                            windowA[count] = rawAmplitudeMap[nIdx];
+                            windowZ[count] = heightMapMm[nIdx];
+                            windowA[count] = amplitudeMap[nIdx];
                             count++;
                         }
                     }
@@ -761,8 +851,8 @@ public final class VolumeBuffer {
                     tempZ[idx] = windowZ[count / 2];
                     tempA[idx] = windowA[count / 2];
                 } else {
-                    tempZ[idx] = rawHeightMapMm[idx];
-                    tempA[idx] = rawAmplitudeMap[idx];
+                    tempZ[idx] = heightMapMm[idx];
+                    tempA[idx] = amplitudeMap[idx];
                 }
             }
         }

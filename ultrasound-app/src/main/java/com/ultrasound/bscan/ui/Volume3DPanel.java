@@ -469,6 +469,9 @@ public final class Volume3DPanel extends JPanel {
                     double spanY = (yNext - y) * dy;
                     double dzdx = -((z10 - z00 + z11 - z01) * 0.5 / spanX) * zExag;
                     double dzdy = -((z01 - z00 + z11 - z10) * 0.5 / spanY) * zExag;
+                    // Clamp normal slopes to prevent shading explosion on steep cliffs
+                    dzdx = Math.clamp(dzdx, -6.0, 6.0);
+                    dzdy = Math.clamp(dzdy, -6.0, 6.0);
                     double nx = -dzdx;
                     double ny = -dzdy;
                     double nz = 1.0;
@@ -561,9 +564,13 @@ public final class Volume3DPanel extends JPanel {
             for (int y = 0; y < gridY; y += stepY) {
                 int[] px = new int[gridX];
                 int[] py = new int[gridX];
+                double lastValidZ = zBoxMax;
                 for (int x = 0; x < gridX; x++) {
                     int i = y * gridX + x;
-                    double z = (measured[i] && heightMap[i] > 0) ? heightMap[i] : zBoxMax;
+                    if (measured[i] && heightMap[i] > 0) {
+                        lastValidZ = heightMap[i];
+                    }
+                    double z = lastValidZ;
                     int[] p = project(x * dx, y * dy, z, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
                     px[x] = p[0];
                     py[x] = p[1];
@@ -574,9 +581,13 @@ public final class Volume3DPanel extends JPanel {
             for (int x = 0; x < gridX; x += stepX) {
                 int[] px = new int[gridY];
                 int[] py = new int[gridY];
+                double lastValidZ = zBoxMax;
                 for (int y = 0; y < gridY; y++) {
                     int i = y * gridX + x;
-                    double z = (measured[i] && heightMap[i] > 0) ? heightMap[i] : zBoxMax;
+                    if (measured[i] && heightMap[i] > 0) {
+                        lastValidZ = heightMap[i];
+                    }
+                    double z = lastValidZ;
                     int[] p = project(x * dx, y * dy, z, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
                     px[y] = p[0];
                     py[y] = p[1];

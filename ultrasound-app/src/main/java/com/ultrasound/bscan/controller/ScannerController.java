@@ -179,6 +179,12 @@ public final class ScannerController {
 
     private long fpsFrameCount = 0;
 
+    // Multi-pulse running average buffers for noise reduction & specular peak stabilization
+    private final float[][] rollingFrames = new float[16][1024];
+    private final float[] averagedProcessed = new float[1024];
+    private int rollingCount = 0;
+    private int rollingHead = 0;
+
 
 
     public ScannerController(ScanConfig config, ScanBuffer buffer, VolumeBuffer volumeBuffer,
@@ -332,6 +338,14 @@ public final class ScannerController {
                             if (volumeBuffer != null && !volumeBuffer.isComplete()) {
 
                                 volumeBuffer.setComplete(true);
+
+                                if (volumeBuffer.isFilterEnabled()) {
+                                    volumeBuffer.applySpatialFiltersInternal();
+                                }
+
+                                if (volume3DPanel != null) {
+                                    volume3DPanel.repaint();
+                                }
 
                             }
 
@@ -1190,7 +1204,39 @@ public final class ScannerController {
 
                     boolean dirXPositive = (statusByte & 0x08) != 0;
 
+                    // Multi-pulse running average for noise reduction and specular stability
+                    int avgTarget = state.getPulseAveraging();
+                    float[] activeProcessed = processed;
 
+                    if (isLineStart) {
+                        rollingCount = 0;
+                        rollingHead = 0;
+                    }
+
+                    if (avgTarget > 1) {
+                        int nSamples = Math.min(processed.length, 1024);
+                        System.arraycopy(processed, 0, rollingFrames[rollingHead], 0, nSamples);
+                        rollingHead = (rollingHead + 1) % avgTarget;
+                        if (rollingCount < avgTarget) {
+                            rollingCount++;
+                        }
+
+                        Arrays.fill(averagedProcessed, 0, nSamples, 0.0f);
+                        for (int k = 0; k < rollingCount; k++) {
+                            float[] fK = rollingFrames[k];
+                            for (int s = 0; s < nSamples; s++) {
+                                averagedProcessed[s] += fK[s];
+                            }
+                        }
+                        float invCount = 1.0f / rollingCount;
+                        for (int s = 0; s < nSamples; s++) {
+                            averagedProcessed[s] *= invCount;
+                        }
+                        activeProcessed = averagedProcessed;
+                    } else {
+                        rollingCount = 0;
+                        rollingHead = 0;
+                    }
 
                     if (state.getViewMode() == ViewMode.MODE_2D) {
 
@@ -1204,7 +1250,7 @@ public final class ScannerController {
 
                                 }
 
-                                buffer.addSweepLine(raw, processed);
+                                buffer.addSweepLine(raw, activeProcessed);
 
                                 if (isScanComplete) {
                                     state.setRecording(false);
@@ -1212,7 +1258,7 @@ public final class ScannerController {
 
                             } else {
 
-                                buffer.addWaterfallLine(processed);
+                                buffer.addWaterfallLine(activeProcessed);
 
                             }
 
@@ -1220,11 +1266,11 @@ public final class ScannerController {
 
                             if (state.getMode() == ScanMode.SWEEP) {
 
-                                buffer.addSweepLine(raw, processed);
+                                buffer.addSweepLine(raw, activeProcessed);
 
                             } else {
 
-                                buffer.addWaterfallLine(processed);
+                                buffer.addWaterfallLine(activeProcessed);
 
                             }
 
@@ -1250,13 +1296,13 @@ public final class ScannerController {
 
                         VolumeScanConfig vc = state.getVolumeConfig();
 
-                        PeakEcho peak = signalProcessor.detectPeakWithinGate(processed, config,
+                        PeakEcho peak = signalProcessor.detectPeakWithinGate(activeProcessed, config,
 
                                 vc.getGateMinDepthMm(), vc.getGateMaxDepthMm(), peakThreshold);
 
                         if (isHardwareScanning) {
 
-                            volumeBuffer.recordCurrentPoint(raw, processed, peak, config, vc,
+                            volumeBuffer.recordCurrentPoint(raw, activeProcessed, peak, config, vc,
 
                                     isLineStart, isLineEnd, dirXPositive, isScanComplete);
 
@@ -1268,7 +1314,7 @@ public final class ScannerController {
 
                         } else {
 
-                            volumeBuffer.recordCurrentPoint(raw, processed, peak, config, vc);
+                            volumeBuffer.recordCurrentPoint(raw, activeProcessed, peak, config, vc);
 
                             if (currentSource instanceof SimulatedDataAcquisitionSource sim) {
 
@@ -1292,17 +1338,19 @@ public final class ScannerController {
 
                     VolumeScanConfig vc = state.getVolumeConfig();
 
-                    PeakEcho peak = signalProcessor.detectPeakWithinGate(processed, config,
+                    float[] dispProc = (state.getPulseAveraging() > 1 && rollingCount > 0) ? averagedProcessed : processed;
+
+                    PeakEcho peak = signalProcessor.detectPeakWithinGate(dispProc, config,
 
                             vc.getGateMinDepthMm(), vc.getGateMaxDepthMm(), peakThreshold);
 
                     if (!peak.detected()) {
 
-                        peak = signalProcessor.detectPeak(processed, config, blankingSamples, peakThreshold);
+                        peak = signalProcessor.detectPeak(dispProc, config, blankingSamples, peakThreshold);
 
                     }
 
-                    AScanFrame frame = new AScanFrame(System.nanoTime(), latestRaw, processed, peak);
+                    AScanFrame frame = new AScanFrame(System.nanoTime(), latestRaw, dispProc, peak);
 
                     state.setLatestFrame(frame);
 
@@ -1452,6 +1500,7 @@ public final class ScannerController {
             VolumeScanConfig vConfig = state.getVolumeConfig();
             volumeBuffer.reallocate(vConfig);
             volumeBuffer.clear(vConfig);
+            volumeBuffer.setBacklashCompensationMm(motorService.getSettings().getBacklashCompensationMm());
             dataQueue.clear();
             volume3DPanel.repaint();
             statusBar.setMessage("Chamber Scan in progress: " + vConfig.getGridX() + " x " + vConfig.getGridY() + " grid (" + (vConfig.getGridX() * vConfig.getGridY()) + " pts)...");

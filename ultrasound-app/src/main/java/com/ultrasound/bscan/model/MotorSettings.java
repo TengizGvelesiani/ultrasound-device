@@ -30,6 +30,9 @@ public final class MotorSettings {
     private boolean startPositiveX = true;    // true = +X (Right), false = -X (Left)
     private boolean advancePositiveY = true;  // true = +Y (Forward), false = -Y (Backward)
 
+    // Backlash compensation (in mm) for serpentine line reversal (+X vs -X)
+    private double backlashCompensationMm = 0.0;
+
     public MotorSettings() {
     }
 
@@ -185,5 +188,25 @@ public final class MotorSettings {
         double sweepTimeSec = chamberWidthX / Math.max(0.5, speedMmPerSec);
         double stepYTimeSec = lineSpacingY / Math.max(0.5, speedMmPerSec);
         return (lines * sweepTimeSec) + ((lines - 1) * stepYTimeSec) + (lines * 0.05);
+    }
+
+    public synchronized double getBacklashCompensationMm() {
+        return backlashCompensationMm;
+    }
+
+    public synchronized void setBacklashCompensationMm(double backlashMm) {
+        this.backlashCompensationMm = Math.clamp(backlashMm, 0.0, 5.0);
+    }
+
+    public synchronized void setPrecision3DSpeed() {
+        setSpeedMmPerSec(2.0);
+    }
+
+    public synchronized void setStandard3DSpeed() {
+        setSpeedMmPerSec(5.0);
+    }
+
+    public synchronized void setFast2DSpeed() {
+        setSpeedMmPerSec(10.0);
     }
 }

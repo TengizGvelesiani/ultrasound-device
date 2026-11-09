@@ -92,6 +92,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
     private final JSpinner spnStepsPerMmX = new JSpinner(new SpinnerNumberModel(400.0, 10.0, 5000.0, 10.0));
     private final JSpinner spnStepsPerMmY = new JSpinner(new SpinnerNumberModel(400.0, 10.0, 5000.0, 10.0));
     private final JSpinner spnPreviewSpeed = new JSpinner(new SpinnerNumberModel(25.0, 1.0, 100.0, 5.0));
+    private final JSpinner spnBacklash = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 5.0, 0.05));
 
     // Live Grid HUD Banner
     private final JLabel lblGridBanner = new JLabel("● RASTER GRID: 100 × 41  (4,100 pts)");
@@ -224,6 +225,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         ModernUi.styleSpinner(spnStepsPerMmX);
         ModernUi.styleSpinner(spnStepsPerMmY);
         ModernUi.styleSpinner(spnPreviewSpeed);
+        ModernUi.styleSpinner(spnBacklash);
         ModernUi.styleSpinner(spnGridPointsX);
         ModernUi.styleSpinner(spnGridLinesY);
         btnPreviewScanArea.setToolTipText("Moves the stepper motors quickly along the perimeter rectangle of the scan area and returns to original position.");
@@ -574,7 +576,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
         cmbStartXDir.setPreferredSize(new Dimension(110, 24));
         cmbAdvanceYDir.setPreferredSize(new Dimension(110, 24));
 
-        JPanel grid = new JPanel(new GridLayout(11, 2, 8, 4)) {
+        JPanel grid = new JPanel(new GridLayout(12, 2, 8, 4)) {
             @Override
             public Dimension getMaximumSize() {
                 return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
@@ -612,6 +614,9 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
 
         grid.add(createLabel("Advance Dir Y:"));
         grid.add(cmbAdvanceYDir);
+
+        grid.add(createLabel("Backlash (mm):"));
+        grid.add(spnBacklash);
 
         grid.add(createLabel("Preview Spd (mm/s):"));
         grid.add(spnPreviewSpeed);
@@ -841,6 +846,10 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             settings.setPreviewSpeedMmPerSec(((Number) spnPreviewSpeed.getValue()).doubleValue());
         });
 
+        spnBacklash.addChangeListener(e -> {
+            settings.setBacklashCompensationMm(((Number) spnBacklash.getValue()).doubleValue());
+        });
+
         // Direction Selectors Listeners
         cmbStartXDir.addActionListener(e -> {
             settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0);
@@ -876,6 +885,7 @@ public final class MotorControlPanel extends JPanel implements MotorControllerSe
             settings.setStepsPerMmX(((Number) spnStepsPerMmX.getValue()).doubleValue());
             settings.setStepsPerMmY(((Number) spnStepsPerMmY.getValue()).doubleValue());
             settings.setSpeedMmPerSec(sldSpeed.getValue());
+            settings.setBacklashCompensationMm(((Number) spnBacklash.getValue()).doubleValue());
             settings.setStartPositiveX(cmbStartXDir.getSelectedIndex() == 0);
             settings.setAdvancePositiveY(cmbAdvanceYDir.getSelectedIndex() == 0);
 

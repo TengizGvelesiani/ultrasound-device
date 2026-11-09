@@ -83,7 +83,8 @@ public final class VolumeControlPanel extends JPanel {
     private final JButton btnColormap = createButton("Map: Turbo [V]", BTN_COLOR);
 
     private final JButton btnTuneColors = createButton("Tune [K]", BTN_TUNE_COLOR);
-    private final JButton btnFilter = createButton("Filter: OFF", new Color(0x2A, 0x3D, 0x4E));
+    private final JButton btnFilter = createButton("Filter: ON", new Color(0x1B, 0x6D, 0x5E));
+    private final JButton btnAvg = createButton("Avg: 4x", new Color(0x1B, 0x5D, 0x4E));
 
     private final JButton btnInvert = createButton("Invert [I]", BTN_COLOR);
 
@@ -212,6 +213,8 @@ public final class VolumeControlPanel extends JPanel {
         row1.add(btnTuneColors);
         btnFilter.setFont(btnFilter.getFont().deriveFont(Font.BOLD));
         row1.add(btnFilter);
+        btnAvg.setToolTipText("Multi-pulse running average to boost SNR and suppress specular dropouts");
+        row1.add(btnAvg);
 
         row1.add(btnInvert);
 
@@ -344,6 +347,20 @@ public final class VolumeControlPanel extends JPanel {
 
 
     private void setupListeners() {
+
+        btnAvg.addActionListener(e -> {
+            int cur = state.getPulseAveraging();
+            int next = switch (cur) {
+                case 1 -> 2;
+                case 2 -> 4;
+                case 4 -> 8;
+                case 8 -> 16;
+                default -> 1;
+            };
+            state.setPulseAveraging(next);
+            btnAvg.setText("Avg: " + next + "x");
+            btnAvg.setBackground(next > 1 ? new Color(0x1B, 0x5D, 0x4E) : BTN_COLOR);
+        });
 
         cmbDensityPreset.addActionListener(e -> {
 
