@@ -1,18 +1,23 @@
-# Open Ultrasound: Single-Element Pulse-Echo & 3D Scanning Rig
+# Single Element Ultrasound Imaging & Volumetric Scanning System
 
-An open-source pulse-echo ultrasound imaging system built from the ground up. This repository contains the complete hardware, FPGA firmware, and software stack for capturing both 2D B-scan cross-sections and 3D volumetric surface scans of submerged targets:
-
+An open-source hardware, FPGA firmware, and high-performance software project for single-element pulse-echo ultrasound imaging. This repository contains the complete design files:
 * **Analog Front End (AFE) & High-Voltage Pulser PCB** (Altium Designer)
-* **Real-Time DSP & Gantry Controller Firmware** (VHDL / Digilent Arty-S7)
-* **Desktop Acquisition & 3D Visualization App** (Java 21 / Swing)
+* **Modular FPGA Digital Signal Processing & Stepper Gantry Firmware** (VHDL / Digilent Arty-S7)
+* **Real-time 2D B-Scan & 2.5D / 3D Volumetric Visualization Application** (Java 21 / Maven)
+* **Documentation & Presentation** (Complete engineering report and slide deck in [`docs/`](docs/))
 
 ---
 
-## What Is This?
+<p align="center">
+  <img src="images/project1.jpg" alt="Ultrasound Scanner Benchtop Rig" width="49%" />
+  <img src="images/project2.jpg" alt="Gantry and Water Tank Setup" width="49%" />
+</p>
 
-Commercial ultrasound machines are expensive black boxes. If you want to experiment with custom beamforming, acoustic non-destructive testing (NDT), or high-frequency surface mapping, getting raw RF data out of vendor hardware is notoriously difficult.
+## Overview
 
-This project is a completely open, benchtop-friendly ultrasound rig. It uses a single 5 MHz immersion transducer mounted on a motorized 2-axis (dual-Y, single-X) Cartesian gantry over a water immersion tank. An FPGA fires nanosecond high-voltage pulses, coordinates time-gain amplification, digitizes echoes at 20 MSPS, demodulates them to baseband in hardware, and streams the acoustic envelope over high-speed UART to a modern Java desktop application for live 2D and 3D visualization.
+Commercial ultrasound machines are expensive, proprietary black boxes. If you want to experiment with custom acoustic excitation, non-destructive testing (NDT), or high-frequency surface mapping, getting raw RF data out of vendor hardware is notoriously difficult.
+
+This project is a completely open, benchtop-friendly ultrasound rig. A single 5 MHz immersion transducer is mounted to a motorized Cartesian gantry (dual locked Y-axis lead screws, single X carriage) suspended over an acoustic immersion tank. An FPGA fires nanosecond high-voltage pulses, coordinates time-gain amplification, digitizes echoes at 20 MSPS, demodulates them to baseband in hardware, and streams the acoustic envelope over 2 Mbaud UART to a custom Java desktop application for real-time 2D cross-sectional and 3D volumetric topographic imaging.
 
 ```
 +---------------------------------------------------------------------------------------+
@@ -70,9 +75,37 @@ This project is a completely open, benchtop-friendly ultrasound rig. It uses a s
 
 ---
 
-## How It Works
+## Real-World Scan Results
 
-### 1. The Analog Front End (AFE)
+Here are example scans captured directly on this benchtop system using submerged targets in the immersion tank:
+
+### 1. Submerged Coin & Metal Relief Scan
+A metal coin target submerged in the immersion tank. The 2D B-scan resolves the water column and acoustic boundary of the coin face, while the 3D C-scan maps the topographic surface relief.
+
+<p align="center">
+  <img src="images/metal_scan/metal_setup.jpg" alt="Metal Target in Water Tank" width="32%" />
+  <img src="images/metal_scan/2d.jpg" alt="2D B-Scan Cross Section" width="32%" />
+  <img src="images/metal_scan/coin_topdown.png" alt="3D C-Scan Reconstruction" width="32%" />
+</p>
+
+### 2. Immersed Threaded Screw Scan
+A steel machine screw placed horizontally in the tank. The pulse-echo reflections clearly resolve the head, body profile, and individual thread ridges.
+
+<p align="center">
+  <img src="images/screw_scan/screw_setup.jpg" alt="Screw Target Setup" width="32%" />
+  <img src="images/screw_scan/2d_screw.png" alt="2D B-Scan of Screw" width="32%" />
+  <img src="images/screw_scan/02_Cleaned_TopDown_CScan_XY.png" alt="Top-Down C-Scan of Screw" width="32%" />
+</p>
+
+---
+
+## 1. Analog Front End (AFE) & High-Voltage Pulser PCB
+
+<p align="center">
+  <img src="images/pcb.png" alt="Analog Front End PCB Layout" width="48%" />
+  <img src="images/pcb2.png" alt="Analog Front End 3D PCB View" width="48%" />
+</p>
+
 Capturing ultrasound echoes requires dealing with an extreme dynamic range: you have to slam the transducer with a short high-voltage burst (up to 100 V) to ring the piezo crystal, and then listen for faint microvolt-level echoes returning microseconds later from acoustic impedance boundaries.
 
 * **High-Voltage Pulser**: Uses a Microchip **MD1213** high-speed dual MOSFET driver paired with a **TC6320** complementary N/P MOSFET pair. The FPGA triggers precise half-bridge excitation bursts: a 60 ns strike, 40 ns dead time to prevent shoot-through, and a 500 ns active dampening pulse to quench transducer ringing so the near field doesn't get blinded.
@@ -84,7 +117,8 @@ The complete schematics and multi-layer PCB layout are in the [`PCB/`](PCB/) dir
 
 ---
 
-### 2. FPGA DSP & Hardware Architecture (Digilent Arty-S7)
+## 2. FPGA DSP & Hardware Architecture (Digilent Arty-S7)
+
 All timing, digital filtering, and gantry motion logic runs inside a Xilinx Spartan-7 FPGA on an Arty-S7 board. The VHDL architecture is split into clean, modular blocks:
 
 | Module | Source File | Role |
@@ -97,7 +131,7 @@ All timing, digital filtering, and gantry motion logic runs inside a Xilinx Spar
 | `uart_rx_protocol` | [`uart_rx_protocol.vhd`](FPGA/FPGA.srcs/sources_1/new/uart_rx_protocol.vhd) | Midpoint serial sampler decoding 16-byte host commands with XOR checksum verification. |
 | `pulser_rtz` | [`top.vhd`](FPGA/FPGA.srcs/sources_1/new/top.vhd) | Top-level entity wiring the submodules and mapping physical Arty-S7 I/O pins. |
 
-#### Multiplier-Less Quadrature Demodulation
+### Multiplier-Less Quadrature Demodulation
 Because the ADC samples at 20 MSPS and our transducer center frequency is 5 MHz, the sampling frequency is exactly four times the carrier ($f_s = 4 f_0$). This makes digital quadrature mixing remarkably efficient:
 $$\cos(2\pi \cdot 0.25 \cdot n) = [1, 0, -1, 0, \dots]$$
 $$\sin(2\pi \cdot 0.25 \cdot n) = [0, 1, 0, -1, \dots]$$
@@ -108,7 +142,7 @@ The resulting envelope is decimated 4:1 down to 5 MSPS (giving 1024 depth sample
 
 ---
 
-### 3. Motion Control & Position-Triggered Scanning
+## 3. Motion Control & Position-Triggered Scanning
 
 The scanner uses a 3-axis mechanical gantry:
 * **Dual-Y Lead Screws (Motors Y1 & Y2)**: If you drive a wide gantry with a single lead screw, it binds and racks. The FPGA drives two independent bottom stepper drivers with identical step and direction pulses in hardware lockstep, guaranteeing the gantry remains perfectly square.
@@ -125,20 +159,20 @@ The scanner uses a 3-axis mechanical gantry:
               (Dual-Y Lockstep)
 ```
 
-#### Why Position-Triggered Firing?
+### Why Position-Triggered Firing?
 If you fire pulses on a free-running timer while motors are moving, you get two nasty artifacts:
 1. **Acceleration distortion**: The gantry speeds up at the start of a sweep and slows down at the end. A timer stretches pixels at the edges and squashes them in the middle.
 2. **Serpentine comb/herringbone shift**: When scanning back and forth (boustrophedon), slight mechanical latency or timing drift causes odd and even scan rows to misalign into an ugly zigzag pattern.
 
 To fix this, the FPGA pulser is **slave-locked to the stepper position counter**:
-* In chamber scan mode, the pulser fires strictly every 40 microsteps ($0.100\text{ mm}$ of travel with 400 steps/mm calibration).
+* In chamber scan mode, the pulser fires strictly every 40 microsteps (0.100 mm of travel with 400 steps/mm calibration).
 * During Y indexing steps, the pulser is strictly gated off so no diagonal movement pollutes the volume.
 * The stepper controller checks `acq_busy` before advancing, ensuring zero dropped scan lines even at high gantry velocities.
 * When the scanner is parked or jogged manually, it reverts to a gentle 100 Hz free-running benchtop pulse for live alignment.
 
 ---
 
-### 4. Desktop Acquisition Application (`ultrasound-app`)
+## 4. Desktop Acquisition Application (`ultrasound-app`)
 
 Written in Java 21 using lightweight Swing and a custom software 3D rasterizer, the host application runs without external dependencies or native driver headaches.
 
@@ -165,7 +199,7 @@ Written in Java 21 using lightweight Swing and a custom software 3D rasterizer, 
 +---------------------------------------------------------------------------------------+
 ```
 
-#### Key Capabilities:
+### Key Capabilities:
 * **Real-time 2D B-Scan**: Sweep mode (records single clean passes) and continuous waterfall mode (rolling sonar display).
 * **Live 1D A-Scan Window**: Real-time RF envelope line, ring-down blanking gate (0–60 samples), and automatic peak echo detector displaying depth in millimeters and amplitude.
 * **Instant Dynamic DSP**: Sliders for squelch and contrast gain re-process already-frozen scan buffers in memory without re-running the physical scan.
@@ -184,7 +218,7 @@ Written in Java 21 using lightweight Swing and a custom software 3D rasterizer, 
 
 ---
 
-## Communication Protocols
+## 5. Communication Protocols
 
 The FPGA and PC communicate over standard USB-UART at **2,000,000 baud** (8N1).
 
@@ -222,7 +256,7 @@ Byte:   0     1     2       3             4 .. 1027
 
 ---
 
-## Hardware Wiring & Pin Mapping
+## 6. Hardware Wiring & Pin Mapping
 
 The FPGA design targets the **Digilent Arty-S7** (Spartan-7). All pin assignments are defined in [`constraints.xdc`](FPGA/FPGA.srcs/constrs_1/new/constraints.xdc).
 
@@ -253,10 +287,27 @@ The FPGA design targets the **Digilent Arty-S7** (Spartan-7). All pin assignment
 
 ---
 
-## Repository Tour
+## 7. Documentation
+
+Detailed technical documentation and presentation slides are available in the [`docs/`](docs/) directory:
+* **[Senior Project Report (PDF)](docs/Senior%20Project%20Report.pdf)**: Complete engineering report covering acoustic physics, beam propagation, analog circuit design, FPGA pipelining, and validation data.
+* **[Ultrasound Scanner Presentation (PPTX)](docs/Ultrasound%20Scanner%20Presentation.pptx)**: Project slides detailing the system architecture, hardware build, and experimental scan results.
+
+---
+
+## 8. Repository Tour
 
 ```
 ultrasound-device/
+├── docs/                          # Engineering report and presentation slides
+│   ├── Senior Project Report.pdf
+│   └── Ultrasound Scanner Presentation.pptx
+├── images/                        # Hardware photos and experimental scan captures
+│   ├── project1.jpg               # Benchtop gantry and scanner photo
+│   ├── project2.jpg               # Immersion tank and transducer mount photo
+│   ├── pcb.png / pcb2.png         # Analog front-end board layout and 3D render
+│   ├── metal_scan/                # Submerged coin setup, 2D B-scan, and 3D C-scan
+│   └── screw_scan/                # Submerged screw setup, 2D B-scan, and C-scan
 ├── PCB/                           # Altium Designer hardware files
 │   ├── Pulser.PrjPcb              # Master project
 │   ├── Pulser.SchDoc              # HV pulser, T/R clamp & power schematics
@@ -290,7 +341,7 @@ ultrasound-device/
 
 ---
 
-## Quickstart Guide
+## 9. Quickstart Guide
 
 ### 1. Test Drive the Java App (No Hardware Needed)
 You can try out the full user interface, 2D B-scans, and 3D topographic reconstruction immediately using the built-in acoustic immersion simulator.
@@ -326,7 +377,7 @@ java -jar target/ultrasound-app-1.0.0.jar -p COM10
 
 ---
 
-## Keyboard Shortcuts
+## 10. Keyboard Shortcuts
 
 | Key | Action | Description |
 | :--- | :--- | :--- |
@@ -343,7 +394,7 @@ java -jar target/ultrasound-app-1.0.0.jar -p COM10
 
 ---
 
-## Safety & High Voltage Notice
+## 11. Safety & High Voltage Notice
 
 > **Caution: Experimental Hardware**
 >
