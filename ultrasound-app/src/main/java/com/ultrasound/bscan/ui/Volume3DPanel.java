@@ -74,15 +74,15 @@ public final class Volume3DPanel extends JPanel {
             BufferedImage activeImage
     ) {}
 
-    private static final Color BG_COLOR = new Color(0x10, 0x10, 0x15);
-    private static final Color BOX_COLOR = new Color(0x35, 0x3A, 0x4A);
-    private static final Color AXIS_X_COLOR = new Color(0xFF, 0x55, 0x55);
-    private static final Color AXIS_Y_COLOR = new Color(0x55, 0xFF, 0x77);
-    private static final Color AXIS_Z_COLOR = new Color(0x55, 0xAA, 0xFF);
+    private static final Color BG_COLOR = new Color(0x0E, 0x0E, 0x13);
+    private static final Color BOX_COLOR = new Color(0x38, 0x3E, 0x50);
+    private static final Color AXIS_X_COLOR = new Color(0xFF, 0x52, 0x52);
+    private static final Color AXIS_Y_COLOR = new Color(0x00, 0xE6, 0x76);
+    private static final Color AXIS_Z_COLOR = new Color(0x00, 0xA8, 0xFF);
     private static final Color HEAD_COLOR = new Color(0xFF, 0xCC, 0x00);
-    private static final Color HUD_BG = new Color(0x15, 0x1A, 0x25, 230);
-    private static final Color HUD_BORDER = new Color(0x33, 0x44, 0x60);
-    private static final Color HUD_TEXT = new Color(0xCC, 0xDD, 0xFF);
+    private static final Color HUD_BG = new Color(0x16, 0x1C, 0x28, 245);
+    private static final Color HUD_BORDER = new Color(0x38, 0x48, 0x68);
+    private static final Color HUD_TEXT = new Color(0xD0, 0xE0, 0xFF);
 
     private final ScanConfig scanConfig;
     private final VolumeBuffer volumeBuffer;
@@ -198,14 +198,13 @@ public final class Volume3DPanel extends JPanel {
     }
 
     /**
-     * Core renderer: draws the complete 3D scene at given dimensions and camera viewpoint.
+     * Main rendering function - draws the 3D scene with the current camera settings.
      */
     public void renderScene(Graphics2D g2, int w, int h,
                             double viewYaw, double viewPitch, double viewZoom,
                             int panOffsetX, int panOffsetY,
                             String viewTitle, boolean showScanhead, boolean showHud, boolean showColorbar) {
 
-        // Background
         g2.setColor(BG_COLOR);
         g2.fillRect(0, 0, w, h);
 
@@ -222,7 +221,7 @@ public final class Volume3DPanel extends JPanel {
             gateMax = gateMin + 5.0;
         }
 
-        // Depth framing: directly user-configured through Gate or custom Colormap Window
+        // Figure out what depth range to show colors for
         double zBoxMin;
         double zBoxMax;
         if (state.isColorRangeLockToGate()) {
@@ -239,7 +238,7 @@ public final class Volume3DPanel extends JPanel {
         double zCenter = (zBoxMin + zBoxMax) * 0.5;
         double depthExaggeration = state.getDepthExaggeration();
 
-        // 3D Projection Setup
+        // Set up 3D projection math
         double radYaw = Math.toRadians(viewYaw);
         double radPitch = Math.toRadians(viewPitch);
 
@@ -248,17 +247,16 @@ public final class Volume3DPanel extends JPanel {
         double cosP = Math.cos(radPitch);
         double sinP = Math.sin(radPitch);
 
-        // Scale bounding box to fill ~85% of viewport so the object is large, crisp, and prominent
+        // Scale the scene to fill most of the viewport nicely
         double maxDimension = Math.max(Math.max(totalWidthX, totalHeightY), zBoxSpan * depthExaggeration);
         double baseScale = (Math.min(w, h) * 0.85 * viewZoom) / Math.max(10.0, maxDimension);
         int centerX = w / 2 + panOffsetX;
         int centerY = h / 2 + 15 + panOffsetY;
 
-        // 1. Draw 3D Bounding Box & Axis Grid
+        // Draw everything in order: box, surface, scanhead, colorbar, HUD
         drawBoundingBox(g2, totalWidthX, totalHeightY, zBoxMin, zBoxMax, zCenter,
                 cosY, sinY, cosP, sinP, baseScale, centerX, centerY, depthExaggeration);
 
-        // 2. Render 2.5D / 3D Volumetric Surface
         Render3DStyle style = state.getRender3DStyle();
         if (style == Render3DStyle.SHADED_SURFACE) {
             renderShadedSurface(g2, gridX, gridY, vConfig, zBoxMin, zBoxMax, zCenter,
@@ -271,18 +269,15 @@ public final class Volume3DPanel extends JPanel {
                     cosY, sinY, cosP, sinP, baseScale, centerX, centerY);
         }
 
-        // 3. Draw Scanhead Cursor Indicator
         if (showScanhead) {
             drawScanhead(g2, vConfig, zBoxMin, zBoxMax, zCenter,
                     cosY, sinY, cosP, sinP, baseScale, centerX, centerY, depthExaggeration);
         }
 
-        // 4. Colorbar Legend
         if (showColorbar) {
             drawColorbar(g2, w - 120, h / 2 - 90, 16, 180, zBoxMin, zBoxMax);
         }
 
-        // 5. Overlays & HUD
         if (showHud) {
             drawHud(g2, w, h, viewTitle, viewYaw, viewPitch, viewZoom);
         } else if (viewTitle != null && !viewTitle.isEmpty()) {
@@ -294,25 +289,26 @@ public final class Volume3DPanel extends JPanel {
                           double totalW, double totalH, double zCenter,
                           double cosY, double sinY, double cosP, double sinP,
                           double scale, int centerX, int centerY, double zExaggeration) {
-        // Center around X and Y
+        // Center the coordinates
         double xc = x - totalW * 0.5;
         double yc = y - totalH * 0.5;
-        // z is depth from transducer. Features closer to transducer (smaller depth z, like the coin)
-        // are elevated upward, so (zCenter - z) is positive for elevated features
+
+        // Depth gets exaggerated to make features more visible
+        // Closer to transducer (smaller z) = higher elevation
         double zc = (zCenter - z) * zExaggeration;
 
-        // Yaw rotation around vertical axis
+        // Rotate around vertical axis (yaw)
         double x1 = xc * cosY - yc * sinY;
         double y1 = xc * sinY + yc * cosY;
 
-        // Pitch rotation
+        // Tilt view up/down (pitch)
         double y2 = y1 * cosP - zc * sinP;
         double z2 = y1 * sinP + zc * cosP;
 
         int sx = (int) Math.round(centerX + x1 * scale);
         int sy = (int) Math.round(centerY - z2 * scale);
 
-        return new int[]{sx, sy, (int) Math.round(y2 * 100)}; // third element is depth for sorting
+        return new int[]{sx, sy, (int) Math.round(y2 * 100)};
     }
 
     private void drawBoundingBox(Graphics2D g2, double tw, double th,
@@ -417,12 +413,14 @@ public final class Volume3DPanel extends JPanel {
         Colormap colormap = colormapRegistry.get(state.getColormap());
         int[] lut = colormap.getLut();
 
-        // Directional Light Vector from top-left: L = (0.5, -0.6, 1.2) normalized
+        // Light comes from upper-left, slightly in front, to highlight surface features
         double lx = 0.5, ly = -0.6, lz = 1.2;
         double lLen = Math.sqrt(lx * lx + ly * ly + lz * lz);
         lx /= lLen; ly /= lLen; lz /= lLen;
 
         double zSpan = Math.max(1.0, zBoxMax - zBoxMin);
+
+        // Adaptive mesh decimation - for large grids, skip some quads to keep rendering fast
         int stepX = Math.max(1, (gridX + 119) / 120);
         int stepY = Math.max(1, (gridY + 119) / 120);
         int estQuads = ((gridX - 1 + stepX - 1) / stepX) * ((gridY - 1 + stepY - 1) / stepY);
@@ -445,9 +443,10 @@ public final class Volume3DPanel extends JPanel {
                     int mCount = (measured[i00] ? 1 : 0) + (measured[i10] ? 1 : 0) +
                                  (measured[i11] ? 1 : 0) + (measured[i01] ? 1 : 0);
 
-                    if (mCount == 0) continue; // skip wholly unmeasured areas
+                    if (mCount == 0) continue;
 
-                    // Smooth interpolation fallback: avoid creating artificial cliffs for unmeasured corners
+                    // If some corners haven't been scanned yet, fill them in using nearby measured points
+                    // This prevents jagged holes and keeps the surface smooth during scanning
                     double mSum = (measured[i00] ? heightMap[i00] : 0) +
                                   (measured[i10] ? heightMap[i10] : 0) +
                                   (measured[i11] ? heightMap[i11] : 0) +
@@ -464,33 +463,35 @@ public final class Volume3DPanel extends JPanel {
                     int[] p11 = project(xNext * dx, yNext * dy, z11, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
                     int[] p01 = project(x * dx,     yNext * dy, z01, tw, th, zCenter, cosY, sinY, cosP, sinP, scale, cx, cy, zExag);
 
-                    // Surface Normal scaled by depth exaggeration (elevation h = zCenter - z)
+                    // Calculate surface normal by comparing neighboring heights
                     double spanX = (xNext - x) * dx;
                     double spanY = (yNext - y) * dy;
                     double dzdx = -((z10 - z00 + z11 - z01) * 0.5 / spanX) * zExag;
                     double dzdy = -((z01 - z00 + z11 - z10) * 0.5 / spanY) * zExag;
-                    // Clamp normal slopes to prevent shading explosion on steep cliffs
+
+                    // Don't let super steep cliffs blow out the lighting
                     dzdx = Math.clamp(dzdx, -6.0, 6.0);
                     dzdy = Math.clamp(dzdy, -6.0, 6.0);
+
                     double nx = -dzdx;
                     double ny = -dzdy;
                     double nz = 1.0;
                     double nLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
                     nx /= nLen; ny /= nLen; nz /= nLen;
 
-                    // Hill-shading Lambertian diffuse + boosted ambient
+                    // Basic lighting model: some ambient light plus directional shading
                     double diff = Math.max(0.0, nx * lx + ny * ly + nz * lz);
                     double shade = 0.62 + 0.38 * diff;
 
-                    // Specular reflection glint along surface contours
+                    // Add a little specular highlight on surfaces facing the light
                     double spec = Math.pow(Math.max(0.0, 2.0 * diff * nz - lz), 12.0);
 
-                    // Specimen Depth normalized colormap across full dynamic range with contrast enhancement
+                    // Map the average depth to a color - deeper = cooler colors, shallow = warmer
                     double avgZ = (z00 + z10 + z11 + z01) * 0.25;
                     double normZ = Math.clamp((avgZ - zBoxMin) / zSpan, 0.0, 1.0);
                     double elevation = 1.0 - normZ;
 
-                    // Dynamic contrast & gamma enhancement
+                    // Apply contrast and gamma to make features pop out more
                     double contrastGain = Math.max(0.2, state.getContrast());
                     double gamma = Math.max(0.2, state.getColormapGamma());
                     double effectiveExp = 1.0 / (Math.max(0.25, contrastGain) * gamma);
@@ -500,7 +501,7 @@ public final class Volume3DPanel extends JPanel {
                     int colorIdx = state.isColormapInverted() ? (255 - rawColorIdx) : rawColorIdx;
                     int argb = lut[Math.clamp(colorIdx, 0, 255)];
 
-                    // Brightness scaling directly driven by contrast setting
+                    // Make colors brighter when contrast is turned up
                     double brightFactor = 0.65 + 0.35 * contrastGain;
 
                     int baseR = (argb >> 16) & 0xFF;
@@ -513,7 +514,7 @@ public final class Volume3DPanel extends JPanel {
                     int g = (int) Math.clamp(baseG * shade * brightFactor + specLight, 0, 255);
                     int b = (int) Math.clamp(baseB * shade * brightFactor + specLight, 0, 255);
 
-                    // Minimum visibility baseline to prevent murky pitch-black voids
+                    // Keep a minimum brightness so nothing disappears into total darkness
                     int minFloor = (int) Math.round(20.0 * Math.min(1.5, contrastGain));
                     r = Math.max(r, minFloor);
                     g = Math.max(g, minFloor);
@@ -529,9 +530,10 @@ public final class Volume3DPanel extends JPanel {
             volumeBuffer.getLock().readLock().unlock();
         }
 
-        // Painter's Algorithm: sort back-to-front by camera depth
+        // Sort quads from back to front so they draw in the right order
         quadList.sort(Comparator.comparingDouble(q -> q.camDepth));
 
+        // Only draw mesh edges on small grids - looks messy on large ones
         boolean drawMeshEdges = (gridX <= 45 && gridY <= 45);
         for (RenderQuad q : quadList) {
             g2.setColor(q.fill);

@@ -818,10 +818,11 @@ public final class VolumeBuffer {
     public void applySpatialFiltersInternal() {
         if (rawHeightMapMm == null || heightMapMm == null || gridX <= 0 || gridY <= 0) return;
 
-        // Step 1: Inpaint missing/dropped specular samples first
+        // First, fill in any gaps where we didn't get a good echo
         inpaintMissingSamples();
 
-        // Step 2: 3x3 median filter across filled surface
+        // Then smooth out noise with a median filter that keeps edges sharp
+        // Using median instead of averaging prevents blurring sharp features
         float[] tempZ = new float[heightMapMm.length];
         float[] tempA = new float[amplitudeMap.length];
         float[] windowZ = new float[9];
@@ -830,6 +831,7 @@ public final class VolumeBuffer {
         for (int y = 0; y < gridY; y++) {
             for (int x = 0; x < gridX; x++) {
                 int count = 0;
+                // Grab the 3x3 neighborhood around this point
                 for (int dy = -1; dy <= 1; dy++) {
                     int ny = y + dy;
                     if (ny < 0 || ny >= gridY) continue;
@@ -846,6 +848,7 @@ public final class VolumeBuffer {
                 }
                 int idx = y * gridX + x;
                 if (count > 0) {
+                    // Pick the middle value to filter out spikes
                     java.util.Arrays.sort(windowZ, 0, count);
                     java.util.Arrays.sort(windowA, 0, count);
                     tempZ[idx] = windowZ[count / 2];

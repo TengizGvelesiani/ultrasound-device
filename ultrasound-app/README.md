@@ -1,93 +1,211 @@
-# Ultrasound Acquisition & 3D Visualization App (`ultrasound-app`)
+# Single Element Ultrasound Imaging & Volumetric Scanning System
 
-A desktop Java application for real-time ultrasound acquisition, 2D B-scan cross-sectional imaging, and 3D volumetric surface rendering. 
+<p align="center">
+  <img src="images/project1.jpg" alt="Ultrasound Scanner Benchtop Setup" width="49%" />
+  <img src="images/project2.jpg" alt="Gantry and Water Tank" width="49%" />
+</p>
 
-Built with pure Java 21+ and Swing, it communicates with the FPGA gantry rig over high-speed USB-UART (2,000,000 baud) and includes an integrated acoustic immersion simulator so you can test everything without physical hardware connected.
+A complete open-source ultrasound imaging platform combining custom analog front-end hardware, FPGA digital signal processing, and real-time 2D/3D visualization software. This system enables pulse-echo ultrasound imaging, non-destructive testing, and volumetric scanning with submillimeter resolution.
 
----
-
-## Highlights
-
-### 1. 2D B-Scan Imaging (1-Axis Sweep & Sonar)
-* **Live 1D A-Scan Window**: Real-time RF envelope line, ring-down blanking gate (0–60 samples), and automatic peak echo detector tracking depth in millimeters and echo amplitude (0–255).
-* **Sweep Pass Mode**: Records clean left-to-right 2D cross sections as the transducer scans across an axis.
-* **Continuous Waterfall Mode**: Rolling sonar/oscilloscope monitor for real-time acoustic feedback.
-* **Instant Dynamic DSP**: Real-time squelch and contrast gain sliders that instantly re-filter already recorded frozen sweeps without re-scanning.
-
-### 2. 3D Volumetric Topography (2-Axis Gantry Scanning)
-* **Custom Software 3D Renderer**: Smooth Lambertian hill-shading, Blinn-Phong specular highlights, and Painter's algorithm depth sorting that prevents polygon overlap and visual tearing.
-* **Dynamic Depth-Gated Colormapping**: Automatically scales the full 256-color palette across the active depth gate ($Z_{min} \dots Z_{max}$), ensuring subtle millimeter-scale reliefs (like coin engravings) pop out vividly.
-* **Multiple Visual Styles (`[Y]`)**:
-  * **3D Shaded Surface**: Elevation-colored topographic terrain with directional lighting.
-  * **3D Wireframe Mesh**: High-contrast geometric contours.
-  * **En-Face C-Scan Projection**: Maximum Intensity Projection (MIP) XY view between user-selected depth gates.
-* **6-DOF Interactive Camera**: Orbit (left mouse drag), pan (right mouse drag or Shift+drag), zoom (mouse wheel), and instant preset snaps (`[1]` to `[5]`, `[0]` to reset).
-* **Automated 7-View Snapshot Suite (`[S]`)**: Exports 7 timestamped PNGs and a raw CSV data table in a single click:
-  1. `01_Overview_MultiView_Report.png` (Master 1600 × 1100 4-in-1 report sheet with calibrated colorbars and acquisition parameters)
-  2. `02_TopDown_CScan_XY.png`
-  3. `03_Isometric_3D_Surface.png`
-  4. `04_Front_Elevation_XZ.png`
-  5. `05_Side_Elevation_YZ.png`
-  6. `06_Reverse_Isometric_Back.png`
-  7. `07_Active_Viewport.png`
-  8. `Data_3D_Volume_Matrix.csv`
-
-### 3. Integrated Stepper Gantry Control
-* **Dual-Y Locked Bottom Motors**: Bottom Y1 and Y2 lead-screw motors receive synchronized step and direction pulses to eliminate mechanical racking.
-* **Manual Jogging**: Jog $+X$, $-X$, $+Y$, and $-Y$ with selectable step increments (0.1 mm to 25.0 mm).
-* **Speed & Steps/mm Calibration**: Interactive speed slider (1.0 to 30.0 mm/s) with live step frequency calculation (default 400 steps/mm for 1/16 microstepping on 8 mm pitch lead screws).
-* **1-Click Autonomous Chamber Scan**: Set $X$, $Y$, and $\Delta Y$ spacing, then click **`TRIGGER FULL CHAMBER SCAN`**. The FPGA executes the entire scan autonomously while the app tracks progress.
+**Key Features:**
+- 🔬 Real-time 2D B-Scan cross-sectional imaging
+- 🎯 3D volumetric surface reconstruction and topography
+- ⚡ FPGA-based DSP pipeline (20 MSPS acquisition, hardware demodulation)
+- 🤖 Automated motorized gantry scanning with dual-axis synchronization
+- 💻 Pure Java 21 desktop application (no native dependencies)
+- 🎮 Built-in acoustic simulator for hardware-free testing
 
 ---
 
-## Keyboard Shortcuts
+## 📋 Table of Contents
 
-| Key / Control | Action | Context | Description |
-| :--- | :--- | :--- | :--- |
-| `[TAB]` or `[T]` | **Toggle 2D / 3D** | Global | Switches between 2D B-Scan and 3D Volumetric Mode |
-| `[Y]` | **Cycle 3D Style** | 3D Mode | Cycles between Shaded Surface, Wireframe Mesh, and C-Scan MIP |
-| `[1]` .. `[5]` / `[0]` | **Camera Snap** | 3D Mode | `1`: Isometric, `2`: Top-Down, `3`: Front XZ, `4`: Side YZ, `5`: Reverse, `0`: Reset |
-| `[SPACE]` | **Pause / Freeze** | Global | Freezes live acquisition or resumes real-time scanning |
-| `[C]` | **Clear Buffers** | Global | Clears active 2D sweep or 3D volume buffer |
-| `[V]` | **Cycle Colormap** | Global | Cycles palettes: `Bone` (medical), `Hot`, `Inferno`, `Grayscale` |
-| `[S]` | **Save Scan** | Global | Exports 2D B-Scan or full 3D Multi-View Suite (7 PNGs + CSV) to `scans/` |
-| `[Z]` | **Depth Zoom** | 2D Mode | Toggles between Full Depth (151.5 mm) and Near Field (0–60 mm) |
-| `[` / `]` | **Squelch ±5** | Global | Adjusts noise squelch threshold |
-| `-` / `+` | **Contrast ±0.2** | Global | Adjusts contrast multiplier |
+- [Overview](#overview)
+- [Real-World Scan Results](#real-world-scan-results)
+- [System Architecture](#system-architecture)
+  - [Analog Front End & High-Voltage Pulser](#1-analog-front-end-afe--high-voltage-pulser-pcb)
+  - [FPGA DSP & Hardware Architecture](#2-fpga-dsp--hardware-architecture-digilent-arty-s7)
+  - [Motion Control](#3-motion-control--position-triggered-scanning)
+  - [Desktop Application](#4-desktop-acquisition-application-ultrasound-app)
+- [Quick Start](#quickstart-guide)
+- [Documentation](#documentation)
+- [License](#license)
 
 ---
 
-## Building & Running
+## Overview
 
-### Requirements
-* **Java 21 or newer** (tested on OpenJDK 21, 23, and 25)
-* **Maven 3.8+** (or use the included `mvnw.cmd` wrapper)
+## Overview
 
-### 1. Run Unit Tests (55 Tests Passing)
-```cmd
+This project provides a completely open benchtop ultrasound imaging system. A 5 MHz immersion transducer mounted to a motorized Cartesian gantry performs automated raster scanning over a water immersion tank. An FPGA handles high-voltage pulsing, time-gain amplification, 20 MSPS digitization, and hardware demodulation, streaming processed data to a custom Java desktop application for real-time 2D and 3D visualization.
+
+### Software Highlights
+
+#### 1. 2D B-Scan Imaging
+* **Live 1D A-Scan Display**: Real-time RF envelope with automatic peak detection and depth measurement
+* **Sweep Mode**: Clean single-pass cross-sectional imaging
+* **Waterfall Mode**: Continuous rolling display for live acoustic feedback
+* **Dynamic DSP Controls**: Adjust squelch, contrast, and gain on frozen scans without re-acquiring
+
+#### 2. 3D Volumetric Topography
+* **Software 3D Renderer**: Lambertian shading, Blinn-Phong highlights, and depth-sorted rendering
+* **Depth-Gated Colormapping**: Automatically scales color palette across active depth range
+* **Multiple Visual Modes**: Shaded surface, wireframe mesh, and C-scan MIP projection
+* **Interactive Camera**: Orbit, pan, zoom, and instant camera presets
+* **7-View Export**: One-click export of comprehensive multi-angle report with CSV data
+
+#### 3. Motorized Gantry Control
+* **Dual-Y Synchronization**: Hardware-locked stepper motors eliminate mechanical racking
+* **Manual Jogging**: Precise positioning with adjustable step sizes (0.1-25mm)
+* **Automated Scanning**: One-click chamber scans with real-time progress tracking
+* **Calibration Tools**: Speed control and steps-per-mm calibration interface
+
+---
+
+## ⚡ Quick Start
+
+### Prerequisites
+- **Java 21 or newer** (OpenJDK recommended)
+- **Maven 3.8+** (or use included `mvnw.cmd` wrapper)
+
+### Test Without Hardware
+Launch the built-in acoustic simulator with 3D visualization:
+
+```bash
 cd ultrasound-app
-.\mvnw.cmd test -o
-```
 
-### 2. Package Executable JAR
-```cmd
-cd ultrasound-app
-.\mvnw.cmd package -DskipTests -o
-```
-This builds `target/ultrasound-app-1.0.0.jar` with all dependencies gathered in `target/lib/`.
+# Build the application
+./mvnw.cmd clean package -DskipTests
 
-### 3. Launch in 3D Simulation Mode (No Hardware Needed)
-```cmd
+# Launch simulator in 3D mode
 java -jar target/ultrasound-app-1.0.0.jar --sim --3d
 ```
-Simulates a 2-axis raster scan over a water tank with a submerged 3D coin phantom, relief engraving, and acoustic speckle noise.
 
-### 4. Standard 2D B-Scan Launch
-```cmd
-java -jar target/ultrasound-app-1.0.0.jar
+The simulator generates realistic ultrasound data with a submerged coin phantom, surface relief features, and acoustic speckle noise.
+
+### Run Unit Tests
+```bash
+./mvnw.cmd test
 ```
+55 unit tests verify DSP algorithms, communication protocols, and 3D rendering pipeline.
 
-### 5. Connect to Physical Hardware COM Port
-```cmd
+### Connect to Hardware
+```bash
+# Auto-detect COM port
+java -jar target/ultrasound-app-1.0.0.jar
+
+# Specify COM port directly
 java -jar target/ultrasound-app-1.0.0.jar -p COM10
 ```
+
+### Command-Line Options
+```
+Usage: java -jar ultrasound-app-1.0.0.jar [options]
+
+Options:
+  -p, --port <PORT>    Connect to specific COM port (e.g., COM10)
+  --sim, -s            Launch in simulation mode
+  --3d, -3             Start directly in 3D volumetric view
+  -h, --help           Display help message
+```
+
+---
+
+## ⌨️ Keyboard Shortcuts
+
+| Key | Action | Description |
+| :--- | :--- | :--- |
+| `TAB` or `T` | **Toggle 2D/3D Mode** | Switch between B-Scan and volumetric views |
+| `Y` | **Cycle 3D Style** | Rotate through shaded, wireframe, and C-scan modes |
+| `1-5` | **Camera Presets** | 1: Iso, 2: Top, 3: Front, 4: Side, 5: Back |
+| `0` | **Reset Camera** | Return to default isometric view |
+| `SPACE` | **Pause/Resume** | Freeze or resume live acquisition |
+| `C` | **Clear Buffer** | Clear current scan data |
+| `V` | **Cycle Colormap** | Switch between Bone, Hot, Inferno, Turbo, etc. |
+| `S` | **Save Snapshot** | Export multi-view report and data |
+| `Z` | **Depth Zoom** | Toggle near-field zoom (2D mode) |
+| `[` / `]` | **Adjust Squelch** | Decrease/increase noise threshold (±5) |
+| `-` / `+` | **Adjust Contrast** | Decrease/increase contrast gain (±0.2) |
+| `ESC` | **Emergency Stop** | Immediately halt motor movement |
+
+**Mouse Controls (3D Mode):**
+- **Left Drag**: Orbit/rotate camera
+- **Right Drag / Shift+Drag**: Pan viewport
+- **Mouse Wheel**: Zoom in/out
+- **Double Click**: Reset camera position
+
+---
+
+## 📁 Repository Structure
+
+```
+ultrasound-device/
+├── docs/                          # Engineering documentation
+│   ├── Senior Project Report.pdf
+│   └── Ultrasound Scanner Presentation.pptx
+├── images/                        # Hardware photos and scan results
+│   ├── metal_scan/                # Coin specimen scans
+│   └── screw_scan/                # Machine screw scans
+├── PCB/                           # Altium Designer hardware files
+│   ├── Pulser.PrjPcb             # Main project
+│   └── Output Gerber/            # Manufacturing files
+├── FPGA/                          # Xilinx Vivado VHDL sources
+│   ├── FPGA.xpr                  # Vivado project
+│   └── FPGA.srcs/
+│       ├── sources_1/new/        # VHDL modules
+│       └── constrs_1/new/        # Pin constraints
+└── ultrasound-app/               # Java desktop application
+    ├── pom.xml                   # Maven build configuration
+    ├── src/main/java/            # Application source
+    └── src/test/java/            # Unit tests (55 tests)
+```
+
+---
+
+## 🔧 Building & Development
+
+## 🔧 Building & Development
+
+### Building the Java Application
+
+```bash
+cd ultrasound-app
+
+# Clean build with tests
+./mvnw.cmd clean test
+
+# Package executable JAR
+./mvnw.cmd package -DskipTests
+```
+
+Output: `target/ultrasound-app-1.0.0.jar` with dependencies in `target/lib/`
+
+### FPGA Development
+
+1. Open Xilinx Vivado (2018.3 or newer)
+2. Load project: `FPGA/FPGA.xpr`
+3. Generate bitstream: Flow Navigator → Generate Bitstream
+4. Program device via JTAG to Arty-S7 board
+
+### Hardware Design
+
+PCB schematics and layout are in Altium Designer format under `PCB/`. Manufacturing Gerber files are available in `PCB/Output Gerber/`.
+
+---
+
+## 📊 Technical Specifications
+
+| Component | Specification |
+|:----------|:--------------|
+| **Transducer** | 5 MHz immersion probe |
+| **ADC Sampling** | 20 MSPS, 12-bit (AD9226) |
+| **Envelope Output** | 5 MSPS, 8-bit log-compressed |
+| **Depth Range** | 0-151.5 mm (one-way in water) |
+| **Time Resolution** | 50 ns per sample |
+| **Spatial Resolution** | ~0.15 mm (depth), 0.10 mm (lateral) |
+| **Communication** | 2 Mbaud UART over USB |
+| **Gantry Resolution** | 1/16 microstep (400 steps/mm) |
+| **Scan Speed** | 1-30 mm/s adjustable |
+
+---
+
+## 🔬 Real-World Scan Results

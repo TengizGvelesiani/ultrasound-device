@@ -5,6 +5,7 @@ import com.ultrasound.bscan.model.ScannerState;
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -25,24 +26,36 @@ public final class StatusBar extends JPanel {
     public StatusBar(ScannerState state) {
         setLayout(new BorderLayout());
         setBackground(BG_COLOR);
-        setPreferredSize(new Dimension(800, 24));
-        setBorder(BorderFactory.createEmptyBorder(2, 10, 2, 10));
+        setPreferredSize(new Dimension(800, 26));
+        setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(0x20, 0x20, 0x28)),
+                BorderFactory.createEmptyBorder(3, 12, 3, 12)
+        ));
 
         lblMessage.setForeground(MSG_COLOR);
-        lblMessage.setFont(new Font("SansSerif", Font.BOLD, 11));
+        lblMessage.setFont(new Font("Segoe UI", Font.BOLD, 11));
 
         lblStats.setForeground(STATS_COLOR);
-        lblStats.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        lblStats.setFont(new Font("Segoe UI", Font.PLAIN, 11));
 
         add(lblMessage, BorderLayout.WEST);
         add(lblStats, BorderLayout.EAST);
     }
 
     public void setMessage(String message) {
-        lblMessage.setText(message);
+        if (SwingUtilities.isEventDispatchThread()) {
+            lblMessage.setText(message);
+        } else {
+            SwingUtilities.invokeLater(() -> lblMessage.setText(message));
+        }
     }
 
     public void updateStats(double prfHz, long totalFrames, int currentHead) {
-        lblStats.setText(String.format("PRF: %.1f Hz | Frames: %,d | Head: %,d", prfHz, totalFrames, currentHead));
+        String text = String.format("PRF: %.1f Hz | Frames: %,d | Head: %,d", prfHz, totalFrames, currentHead);
+        if (SwingUtilities.isEventDispatchThread()) {
+            lblStats.setText(text);
+        } else {
+            SwingUtilities.invokeLater(() -> lblStats.setText(text));
+        }
     }
 }

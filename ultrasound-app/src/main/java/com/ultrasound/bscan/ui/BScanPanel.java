@@ -26,14 +26,14 @@ import java.awt.image.DataBufferInt;
  */
 public final class BScanPanel extends JPanel {
 
-    private static final Color BG_COLOR = new Color(0x12, 0x12, 0x16);
-    private static final Color BORDER_COLOR = new Color(0x44, 0x44, 0x55);
-    private static final Color GRID_COLOR = new Color(0x28, 0x28, 0x35);
-    private static final Color TEXT_COLOR = new Color(0xCC, 0xCC, 0xDD);
-    private static final Color CURSOR_COLOR = new Color(0xFF, 0x33, 0x33);
-    private static final Color HUD_BG = new Color(0x11, 0x18, 0x25, 230);
-    private static final Color HUD_BORDER = new Color(0x33, 0x55, 0x77);
-    private static final Color HUD_TEXT = new Color(0xAA, 0xCC, 0xFF);
+    private static final Color BG_COLOR = new Color(0x10, 0x10, 0x14);
+    private static final Color BORDER_COLOR = new Color(0x40, 0x44, 0x58);
+    private static final Color GRID_COLOR = new Color(0x24, 0x26, 0x30);
+    private static final Color TEXT_COLOR = new Color(0xC0, 0xC4, 0xD8);
+    private static final Color CURSOR_COLOR = new Color(0xFF, 0x52, 0x52);
+    private static final Color HUD_BG = new Color(0x16, 0x1A, 0x28, 240);
+    private static final Color HUD_BORDER = new Color(0x38, 0x5C, 0x88);
+    private static final Color HUD_TEXT = new Color(0xB0, 0xD4, 0xFF);
 
     private final ScanConfig config;
     private final ScanBuffer buffer;

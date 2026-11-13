@@ -77,24 +77,41 @@ This project is a completely open, benchtop-friendly ultrasound rig. A single 5 
 
 ## Real-World Scan Results
 
-Here are example scans captured directly on this benchtop system using submerged targets in the immersion tank:
+Below are experimental scans captured directly on this benchtop rig, validating the system's ability to resolve structural boundaries, transit delays, and fine millimeter-scale surface profiles through a liquid coupling medium:
 
-### 1. Submerged Coin & Metal Relief Scan
-A metal coin target submerged in the immersion tank. The 2D B-scan resolves the water column and acoustic boundary of the coin face, while the 3D C-scan maps the topographic surface relief.
+### 1. Submerged Machine Screw (Intricate Geometry & Thread Profiling)
+
+A steel machine screw placed horizontally at the bottom of the water immersion tank. 
+
+* **Physical Setup & 2D B-Scan**: The 2D B-scan slice acquired along the longitudinal axis of the screw clearly captures the distinct echo transit times between the elevated circular drive head and the recessed cylindrical shank.
+* **3D En-Face C-Scan Reconstruction**: Raster scanning across the submerged specimen yields a crisp intensity map resolving the complete morphological silhouette—including the circular drive head, elongated cylindrical body, and periodic acoustic scattering patterns caused by individual thread crests.
 
 <p align="center">
-  <img src="images/metal_scan/metal_setup.jpg" alt="Metal Target in Water Tank" width="32%" />
-  <img src="images/metal_scan/2d.jpg" alt="2D B-Scan Cross Section" width="32%" />
-  <img src="images/metal_scan/coin_topdown.png" alt="3D C-Scan Reconstruction" width="32%" />
+  <img src="images/screw_scan/setup_focused.jpg" alt="Submerged Machine Screw Setup" width="49%" />
+  <img src="images/screw_scan/2d_screw.png" alt="2D B-Scan Echogram Across Screw" width="49%" />
 </p>
 
-### 2. Immersed Threaded Screw Scan
-A steel machine screw placed horizontally in the tank. The pulse-echo reflections clearly resolve the head, body profile, and individual thread ridges.
+<p align="center">
+  <img src="images/screw_scan/screw_cscan_detail.png" alt="Reconstructed Top-Down C-Scan Resolving Screw Threads" width="55%" />
+</p>
+
+---
+
+### 2. Submerged Coin Specimen (Topographic Surface Relief)
+
+A metallic coin specimen submerged at the bottom of the immersion chamber scanned over a 50 mm × 50 mm raster area.
+
+* **Physical Setup & 2D B-Scan**: The 2D cross-section isolates the water column transit delay and captures the high-amplitude echo reflection band at the liquid-metal interface.
+* **C-Scan & 3D Topography**: The en-face C-scan projection clearly resolves the circular perimeter and embossed surface reliefs. The oblique 3D rendering applies directional Lambertian hill-shading and depth-gated colormapping to visualize subtle sub-millimeter surface features.
 
 <p align="center">
-  <img src="images/screw_scan/screw_setup.jpg" alt="Screw Target Setup" width="32%" />
-  <img src="images/screw_scan/2d_screw.png" alt="2D B-Scan of Screw" width="32%" />
-  <img src="images/screw_scan/02_Cleaned_TopDown_CScan_XY.png" alt="Top-Down C-Scan of Screw" width="32%" />
+  <img src="images/metal_scan/setup_focused.jpg" alt="Submerged Coin Setup in Immersion Tank" width="49%" />
+  <img src="images/metal_scan/2d.jpg" alt="2D B-Scan Echogram of Submerged Coin" width="49%" />
+</p>
+
+<p align="center">
+  <img src="images/metal_scan/coin_cscan_detail.png" alt="Top-Down C-Scan Intensity Projection of Coin" width="48%" />
+  <img src="images/metal_scan/coin_side_cropped.png" alt="Oblique 3D Surface Topography with Hill-Shading" width="48%" />
 </p>
 
 ---

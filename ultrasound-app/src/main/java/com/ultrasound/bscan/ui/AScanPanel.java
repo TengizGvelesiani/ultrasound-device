@@ -20,14 +20,14 @@ import java.awt.Stroke;
  */
 public final class AScanPanel extends JPanel {
 
-    private static final Color BG_COLOR = new Color(0x18, 0x18, 0x20);
-    private static final Color BORDER_COLOR = new Color(0x33, 0x33, 0x40);
-    private static final Color GRID_COLOR = new Color(0x28, 0x28, 0x35);
-    private static final Color TEXT_COLOR = new Color(0xAA, 0xAA, 0xBB);
-    private static final Color SIGNAL_COLOR = new Color(0x00, 0xFF, 0xCC);
-    private static final Color SQUELCH_COLOR = new Color(0xFF, 0x44, 0x44);
-    private static final Color PEAK_COLOR = new Color(0xFF, 0xDD, 0x55);
-    private static final Color BADGE_BG = new Color(0x22, 0x22, 0x2A);
+    private static final Color BG_COLOR = new Color(0x14, 0x14, 0x1A);
+    private static final Color BORDER_COLOR = new Color(0x38, 0x3C, 0x48);
+    private static final Color GRID_COLOR = new Color(0x24, 0x26, 0x30);
+    private static final Color TEXT_COLOR = new Color(0xA0, 0xA4, 0xB8);
+    private static final Color SIGNAL_COLOR = new Color(0x00, 0xE5, 0xFF);
+    private static final Color SQUELCH_COLOR = new Color(0xFF, 0x52, 0x52);
+    private static final Color PEAK_COLOR = new Color(0xFF, 0xCC, 0x00);
+    private static final Color BADGE_BG = new Color(0x1E, 0x20, 0x2A);
 
     private final ScanConfig config;
     private final ScannerState state;
@@ -70,8 +70,8 @@ public final class AScanPanel extends JPanel {
         g2.drawRect(marginLeft, marginTop, plotW, plotH);
 
         // Title
-        g2.setFont(new Font("SansSerif", Font.BOLD, 12));
-        g2.setColor(Color.WHITE);
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        g2.setColor(new Color(0xE0, 0xE4, 0xF0));
         g2.drawString("Real-Time A-Scan (Acoustic Reflection Envelope)", marginLeft, marginTop - 8);
 
         // Grid & Ticks
@@ -199,13 +199,13 @@ public final class AScanPanel extends JPanel {
     }
 
     private void drawBadge(Graphics2D g2, String text, int x, int y, Color textColor) {
-        g2.setFont(new Font("SansSerif", Font.BOLD, 10));
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 10));
         int strW = g2.getFontMetrics().stringWidth(text);
         g2.setColor(BADGE_BG);
-        g2.fillRoundRect(x - 5, y, strW + 10, 18, 6, 6);
-        g2.setColor(BORDER_COLOR);
-        g2.drawRoundRect(x - 5, y, strW + 10, 18, 6, 6);
+        g2.fillRoundRect(x - 6, y, strW + 12, 20, 8, 8);
+        g2.setColor(new Color(0x40, 0x44, 0x58));
+        g2.drawRoundRect(x - 6, y, strW + 12, 20, 8, 8);
         g2.setColor(textColor);
-        g2.drawString(text, x, y + 13);
+        g2.drawString(text, x, y + 14);
     }
 }

@@ -25,10 +25,10 @@ import java.util.function.Consumer;
  */
 public final class ControlPanel extends JPanel {
 
-    private static final Color BG_COLOR = new Color(0x18, 0x18, 0x20);
-    private static final Color BTN_COLOR = new Color(0x2B, 0x35, 0x40);
-    private static final Color BTN_SAVE_COLOR = new Color(0x1B, 0x4D, 0x3E);
-    private static final Color TEXT_COLOR = Color.WHITE;
+    private static final Color BG_COLOR = new Color(0x16, 0x16, 0x1E);
+    private static final Color BTN_COLOR = new Color(0x2E, 0x36, 0x44);
+    private static final Color BTN_SAVE_COLOR = new Color(0x1B, 0x5D, 0x4E);
+    private static final Color TEXT_COLOR = new Color(0xE8, 0xEC, 0xF4);
 
     private final ScannerState state;
 
@@ -65,7 +65,7 @@ public final class ControlPanel extends JPanel {
         connectionRow.setBackground(BG_COLOR);
         JLabel lblPort = new JLabel("COM Port:");
         lblPort.setForeground(TEXT_COLOR);
-        lblPort.setFont(new Font("SansSerif", Font.BOLD, 11));
+        lblPort.setFont(new Font("Segoe UI", Font.BOLD, 11));
         connectionRow.add(lblPort);
 
         cmbPorts.setPreferredSize(new Dimension(220, 26));
@@ -74,8 +74,8 @@ public final class ControlPanel extends JPanel {
         connectionRow.add(btnRefreshPorts);
         connectionRow.add(btnConnect);
 
-        chkSimulation.setForeground(Color.CYAN);
-        chkSimulation.setFont(new Font("SansSerif", Font.BOLD, 11));
+        chkSimulation.setForeground(new Color(0x00, 0xE5, 0xFF));
+        chkSimulation.setFont(new Font("Segoe UI", Font.BOLD, 11));
         chkSimulation.setOpaque(false);
         chkSimulation.setFocusable(false);
         connectionRow.add(chkSimulation);
@@ -115,10 +115,11 @@ public final class ControlPanel extends JPanel {
     }
 
     private void setupSlider(JSlider slider, JLabel label, Color trackColor) {
-        slider.setPreferredSize(new Dimension(180, 24));
+        slider.setPreferredSize(new Dimension(180, 26));
         slider.setOpaque(false);
+        slider.setFocusable(false);
         label.setForeground(TEXT_COLOR);
-        label.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        label.setFont(new Font("Segoe UI", Font.PLAIN, 11));
     }
 
     private void setupInternalListeners() {
@@ -155,8 +156,8 @@ public final class ControlPanel extends JPanel {
 
     private JButton createButton(String label, Color bg) {
         ModernUi.RoundedButton btn = new ModernUi.RoundedButton(label, bg, ModernUi.lighten(bg, 0.35f), 6);
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 9));
-        btn.setMargin(new Insets(2, 6, 2, 6));
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        btn.setMargin(new Insets(3, 8, 3, 8));
         btn.setFocusable(false);
         return btn;
     }
